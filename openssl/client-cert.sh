@@ -1,3 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
 ##########################
 # ROOT CA Env init
 ##########################
@@ -6,7 +9,7 @@ read -p "Enter the ROOT CA domain name (e.g., runlocal.dev): " ROOT_CA_DOMAIN_NA
 
 # --- Dynamic Variable Generation ---
 # If the user enters an empty string, exit.
-if [ -z "$ROOT_CA_DOMAIN_NAME" ]; then
+if [ -z "${ROOT_CA_DOMAIN_NAME}" ]; then
     echo "ROOT CA domain name cannot be empty. Exiting."
     exit 1
 fi
@@ -14,7 +17,7 @@ fi
 # Derive other names from the domain name provided.
 # This replaces the first dot with a hyphen for the literal name and directory.
 # Example: 'runlocal.dev' becomes 'runlocal-dev'
-ROOT_CA_LITERAL_NAME=$(echo "$ROOT_CA_DOMAIN_NAME" | sed 's/\./-/')
+ROOT_CA_LITERAL_NAME=$(echo "${ROOT_CA_DOMAIN_NAME}" | sed 's/\./-/')
 WORK_DIR="./${ROOT_CA_LITERAL_NAME}"
 ROOT_CA_DIR="${WORK_DIR}/ca"
 
@@ -27,13 +30,13 @@ read -p "Enter a new account/tenant name for the Organization Name in the interm
 
 # --- Dynamic Variable Generation ---
 # If the user enters an empty string, exit.
-if [ -z "$INTERMEDIATE_CA_NAME" ]; then
+if [ -z "${INTERMEDIATE_CA_NAME}" ]; then
     echo "Intermediate CA domain name cannot be empty. Exiting."
     exit 1
 fi
 
 INTERMEDIATE_CA_DIR="${WORK_DIR}/${INTERMEDIATE_CA_NAME}"
-mkdir -p ${INTERMEDIATE_CA_DIR}
+mkdir -p "${INTERMEDIATE_CA_DIR}"
 
 
 
@@ -44,14 +47,14 @@ mkdir -p ${INTERMEDIATE_CA_DIR}
 read -p "Enter the client name (e.g., "my-client"): " CLIENT_NAME
 
 CLIENT_DIR="${WORK_DIR}/${INTERMEDIATE_CA_NAME}/client-tls"
-mkdir -p ${CLIENT_DIR}
+mkdir -p "${CLIENT_DIR}"
 
 
 
 ###########################
 # OpenSSL config
 ###########################
-cat > ${CLIENT_DIR}/${CLIENT_NAME}.conf <<EOF
+cat > "${CLIENT_DIR}/${CLIENT_NAME}.conf" <<EOF
 # Include defaults
 .include ${WORK_DIR}/${ROOT_CA_LITERAL_NAME}-defaults.conf
 
@@ -82,16 +85,16 @@ EOF
 #########################################
 # create the Client cert request
 openssl req -new -nodes -sha256 -newkey rsa:2048 \
-  -config ${CLIENT_DIR}/${CLIENT_NAME}.conf \
-  -keyout ${CLIENT_DIR}/${CLIENT_NAME}-client.key \
-  -out ${CLIENT_DIR}/${CLIENT_NAME}-client.csr
+  -config "${CLIENT_DIR}/${CLIENT_NAME}.conf" \
+  -keyout "${CLIENT_DIR}/${CLIENT_NAME}-client.key" \
+  -out "${CLIENT_DIR}/${CLIENT_NAME}-client.csr"
 
 # sign the client cert with the intermediate CA
 openssl ca -batch \
-  -config ${INTERMEDIATE_CA_DIR}/${INTERMEDIATE_CA_NAME}.conf \
+  -config "${INTERMEDIATE_CA_DIR}/${INTERMEDIATE_CA_NAME}.conf" \
   -extensions client_ext \
-  -in ${CLIENT_DIR}/${CLIENT_NAME}-client.csr \
-  -out ${CLIENT_DIR}/${CLIENT_NAME}-client.crt \
+  -in "${CLIENT_DIR}/${CLIENT_NAME}-client.csr" \
+  -out "${CLIENT_DIR}/${CLIENT_NAME}-client.crt" \
   -days 365
 
 

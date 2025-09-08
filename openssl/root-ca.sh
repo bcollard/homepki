@@ -1,3 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
 ##########################
 # ROOT CA Env init
 ##########################
@@ -6,7 +9,7 @@ read -p "Enter the ROOT CA domain name (e.g., runlocal.dev): " ROOT_CA_DOMAIN_NA
 
 # --- Dynamic Variable Generation ---
 # If the user enters an empty string, exit.
-if [ -z "$ROOT_CA_DOMAIN_NAME" ]; then
+if [ -z "${ROOT_CA_DOMAIN_NAME}" ]; then
     echo "ROOT CA domain name cannot be empty. Exiting."
     exit 1
 fi
@@ -14,32 +17,32 @@ fi
 # Derive other names from the domain name provided.
 # This replaces the first dot with a hyphen for the literal name and directory.
 # Example: 'runlocal.dev' becomes 'runlocal-dev'
-ROOT_CA_LITERAL_NAME=$(echo "$ROOT_CA_DOMAIN_NAME" | sed 's/\./-/')
+ROOT_CA_LITERAL_NAME=$(echo "${ROOT_CA_DOMAIN_NAME}" | sed 's/\./-/')
 WORK_DIR="./${ROOT_CA_LITERAL_NAME}"
 ROOT_CA_DIR="${WORK_DIR}/ca"
 
-mkdir -p ${ROOT_CA_DIR}
+mkdir -p "${ROOT_CA_DIR}"
 
 
 #########################################
 # CA Database
 #########################################
 # Create a directory to hold the CA files
-mkdir -p ${ROOT_CA_DIR}/db
-mkdir -p ${ROOT_CA_DIR}/private
-chmod 700 ${ROOT_CA_DIR}/private
+mkdir -p "${ROOT_CA_DIR}/db"
+mkdir -p "${ROOT_CA_DIR}/private"
+chmod 700 "${ROOT_CA_DIR}/private"
 
 # Create an empty index file
-touch ${ROOT_CA_DIR}/db/index.db
+touch "${ROOT_CA_DIR}/db/index.db"
 
 # Create a file to hold the next serial number
-echo "1000" > ${ROOT_CA_DIR}/db/serial
+echo "1000" > "${ROOT_CA_DIR}/db/serial"
 
 
 #########################################
 # OPENSSL DEFAULTS
 #########################################
-cat > ${WORK_DIR}/${ROOT_CA_LITERAL_NAME}-defaults.conf <<EOF
+cat > "${WORK_DIR}/${ROOT_CA_LITERAL_NAME}-defaults.conf" <<EOF
 ### Defaults
 default_bits            = 2048                  # RSA key size
 encrypt_key             = yes                   # Protect private key
@@ -54,7 +57,7 @@ EOF
 #########################################
 # OpenSSL config file
 #########################################
-cat > ${ROOT_CA_DIR}/${ROOT_CA_LITERAL_NAME}.conf <<EOF
+cat > "${ROOT_CA_DIR}/${ROOT_CA_LITERAL_NAME}.conf" <<EOF
 # Include defaults
 .include ${WORK_DIR}/${ROOT_CA_LITERAL_NAME}-defaults.conf
 
@@ -112,13 +115,13 @@ EOF
 #########################################
 # create the CA request
 openssl req -new -nodes -sha256 -newkey rsa:2048 \
-  -config ${ROOT_CA_DIR}/${ROOT_CA_LITERAL_NAME}.conf \
-  -keyout ${ROOT_CA_DIR}/private/${ROOT_CA_LITERAL_NAME}-root-ca.key \
-  -out ${ROOT_CA_DIR}/${ROOT_CA_LITERAL_NAME}-root-ca.csr
+  -config "${ROOT_CA_DIR}/${ROOT_CA_LITERAL_NAME}.conf" \
+  -keyout "${ROOT_CA_DIR}/private/${ROOT_CA_LITERAL_NAME}-root-ca.key" \
+  -out "${ROOT_CA_DIR}/${ROOT_CA_LITERAL_NAME}-root-ca.csr"
   
 # self-sign the CA
 openssl ca -selfsign -batch \
-  -config ${ROOT_CA_DIR}/${ROOT_CA_LITERAL_NAME}.conf \
-  -in ${ROOT_CA_DIR}/${ROOT_CA_LITERAL_NAME}-root-ca.csr \
-  -out ${ROOT_CA_DIR}/${ROOT_CA_LITERAL_NAME}-root-ca.crt
+  -config "${ROOT_CA_DIR}/${ROOT_CA_LITERAL_NAME}.conf" \
+  -in "${ROOT_CA_DIR}/${ROOT_CA_LITERAL_NAME}-root-ca.csr" \
+  -out "${ROOT_CA_DIR}/${ROOT_CA_LITERAL_NAME}-root-ca.crt"
 
