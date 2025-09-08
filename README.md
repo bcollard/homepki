@@ -14,7 +14,7 @@ It provides two implementations: one using `openssl` and another using `step`.
 ## Project Structure
 
 ```
-three-tiers/
+.
 ├── openssl/
 │   ├── Makefile                    # Main automation targets for OpenSSL
 │   ├── root-ca.sh                  # Root CA creation script
@@ -48,7 +48,7 @@ three-tiers/
 
 1. Navigate to the OpenSSL directory:
 ```bash
-cd three-tiers/openssl
+cd openssl
 ```
 
 2. View available commands:
@@ -75,7 +75,7 @@ make client-cert
 
 1. Navigate to the Step directory:
 ```bash
-cd three-tiers/step
+cd step
 ```
 
 2. View available commands:
