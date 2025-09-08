@@ -1,6 +1,6 @@
 # PKI (Public Key Infrastructure) Management
 
-A comprehensive PKI management system for creating and managing three-tier certificate authorities, intermediate CAs, and TLS certificates using OpenSSL.
+A comprehensive PKI management system for creating and managing three-tier certificate authorities, intermediate CAs, and TLS certificates using OpenSSL and Step CLI.
 
 ## Overview
 
@@ -9,31 +9,42 @@ This project implements a three-tier PKI structure consisting of:
 - **Intermediate CA**: Organization/tenant-specific intermediate certificate authorities
 - **End-entity certificates**: Server and client certificates for services
 
+It provides two implementations: one using `openssl` and another using `step`.
+
 ## Project Structure
 
 ```
 three-tiers/
-└── openssl/
-    ├── Makefile                    # Main automation targets
+├── openssl/
+│   ├── Makefile                    # Main automation targets for OpenSSL
+│   ├── root-ca.sh                  # Root CA creation script
+│   ├── intermediate-ca.sh          # Intermediate CA creation script
+│   ├── server-cert.sh              # Server certificate creation script
+│   ├── client-cert.sh              # Client certificate creation script
+│   └── runlocal-dev/               # Example PKI deployment
+│       ├── runlocal-dev-defaults.conf
+│       ├── ca/                     # Root CA files
+│       └── bco/                    # Example intermediate CA
+│           ├── server-tls/         # Server certificates
+│           └── client-tls/         # Client certificates
+└── step/
+    ├── Makefile                    # Main automation targets for Step CLI
     ├── root-ca.sh                  # Root CA creation script
     ├── intermediate-ca.sh          # Intermediate CA creation script
     ├── server-cert.sh              # Server certificate creation script
-    ├── client-cert.sh              # Client certificate creation script
-    └── runlocal-dev/               # Example PKI deployment
-        ├── runlocal-dev-defaults.conf
-        ├── ca/                     # Root CA files
-        └── bco/                    # Example intermediate CA
-            ├── server-tls/         # Server certificates
-            └── client-tls/         # Client certificates
+    └── client-cert.sh              # Client certificate creation script
 ```
 
 ## Prerequisites
 
-- OpenSSL installed on your system
 - Bash shell environment
 - Make utility
+- For the `openssl` implementation: OpenSSL installed
+- For the `step` implementation: Step CLI installed
 
 ## Quick Start
+
+### Using OpenSSL
 
 1. Navigate to the OpenSSL directory:
 ```bash
@@ -60,11 +71,40 @@ make server-cert
 make client-cert
 ```
 
+### Using Step CLI
+
+1. Navigate to the Step directory:
+```bash
+cd three-tiers/step
+```
+
+2. View available commands:
+```bash
+make help
+```
+
+3. Create a complete PKI setup:
+```bash
+# Create root CA
+make root-ca
+
+# Create intermediate CA
+make intermediate-ca
+
+# Create server certificate
+make server-cert
+
+# Create client certificate
+make client-cert
+```
+
 ## Usage Guide
+
+The usage for both `openssl` and `step` implementations is similar. You will be prompted for necessary information like domain names and organization names.
 
 ### 1. Creating a Root CA
 
-Run the root CA creation script:
+Run the root CA creation script from either the `openssl` or `step` directory:
 ```bash
 make root-ca
 ```
@@ -75,7 +115,6 @@ You'll be prompted for:
 This creates:
 - Root CA directory structure
 - Root CA private key and certificate
-- CA database for tracking issued certificates
 
 ### 2. Creating an Intermediate CA
 
@@ -119,10 +158,10 @@ Similar to server certificates but configured for client authentication use case
 ## Security Features
 
 - **2048-bit RSA keys** for strong encryption
-- **Private key protection** with encryption
+- **Private key protection** (optional with `step`)
 - **UTF-8 encoding** for international character support
 - **Proper file permissions** (700 for private directories)
-- **Certificate database tracking** for revocation management
+- **Certificate database tracking** for revocation management (with `openssl`)
 - **Serial number management** for unique certificate identification
 
 ## File Organization
@@ -132,9 +171,8 @@ Similar to server certificates but configured for client authentication use case
 {domain-name}/
 ├── ca/
 │   ├── {domain-name}-root-ca.crt     # Root certificate
-│   ├── {domain-name}-root-ca.key     # Root private key
-│   ├── db/                           # Certificate database
 │   └── private/                      # Protected private keys
+│       └── {domain-name}-root-ca.key # Root private key
 ```
 
 ### Intermediate CA Structure
@@ -145,16 +183,16 @@ Similar to server certificates but configured for client authentication use case
     ├── {org}-intermediate-ca-chain.crt # Certificate chain
     ├── server-tls/                   # Server certificates
     ├── client-tls/                   # Client certificates
-    ├── db/                           # Certificate database
     └── private/                      # Protected private keys
+        └── {org}-intermediate-ca.key # Intermediate private key
 ```
 
 ## Configuration
 
-The system uses OpenSSL configuration files with sensible defaults:
+The `openssl` implementation uses OpenSSL configuration files with sensible defaults. The `step` implementation uses command-line flags and profiles for configuration.
+
 - **Key size**: 2048 bits
-- **Encoding**: UTF-8
-- **Key protection**: Encrypted private keys
+- **Key protection**: Encrypted private keys (optional with `step`)
 - **Extensions**: Proper certificate extensions for CA and end-entity certs
 
 ## Best Practices
@@ -167,7 +205,7 @@ The system uses OpenSSL configuration files with sensible defaults:
 
 ## Example Deployment
 
-The `runlocal-dev` directory contains an example PKI deployment for development environments, demonstrating:
+The `runlocal-dev` directory (created by the scripts) contains an example PKI deployment for development environments, demonstrating:
 - Root CA for `runlocal.dev` domain
 - Intermediate CA for `bco` organization
 - Server certificates for Kong Gateway clustering
@@ -180,10 +218,11 @@ The `runlocal-dev` directory contains an example PKI deployment for development 
 1. **Permission denied**: Ensure proper file permissions on private directories
 2. **Certificate validation**: Check certificate chains and trust relationships
 3. **Expired certificates**: Monitor and renew certificates before expiration
-4. **Configuration errors**: Validate OpenSSL configuration syntax
+4. **Configuration errors**: Validate OpenSSL configuration syntax or `step` command arguments
 
 ### Verification Commands
 
+#### OpenSSL
 ```bash
 # Verify certificate
 openssl x509 -in certificate.crt -text -noout
@@ -193,6 +232,15 @@ openssl verify -CAfile root-ca.crt -untrusted intermediate-ca.crt end-entity.crt
 
 # Check private key
 openssl rsa -in private-key.key -check
+```
+
+#### Step CLI
+```bash
+# Inspect a certificate
+step certificate inspect certificate.crt
+
+# Verify a certificate chain
+step certificate verify end-entity.crt --roots root-ca.crt --intermediates intermediate-ca.crt
 ```
 
 ## License
@@ -209,4 +257,4 @@ When contributing to this PKI system:
 
 ## Support
 
-For questions or issues with this PKI system, please refer to the OpenSSL documentation or consult with your security team.
+For questions or issues with this PKI system, please refer to the OpenSSL or Step CLI documentation or consult with your security team.

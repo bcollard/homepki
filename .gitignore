@@ -1,3 +1,3 @@
 three-tiers/openssl/*/
-three-tiers/openssl/*/**
+three-tiers/step/*/
 *.key
