@@ -39,8 +39,8 @@ echo "Creating client certificate for ${CLIENT_NAME}..."
 
 # Generate client certificate
 step certificate create "${CLIENT_NAME}.${INTERMEDIATE_CA_NAME}.${ROOT_CA_DOMAIN_NAME}" \
-  "${CLIENT_DIR}/${CLIENT_NAME}-client.crt" \
-  "${CLIENT_DIR}/${CLIENT_NAME}-client.key" \
+  "${CLIENT_DIR}/${CLIENT_NAME}.crt" \
+  "${CLIENT_DIR}/${CLIENT_NAME}.key" \
   --profile leaf \
   --ca "${INTERMEDIATE_CA_CERT}" \
   --ca-key "${INTERMEDIATE_CA_KEY}" \

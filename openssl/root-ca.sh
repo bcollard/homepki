@@ -49,6 +49,7 @@ encrypt_key             = yes                   # Protect private key
 utf8                    = yes                   # Input is UTF-8
 string_mask             = utf8only              # Emit UTF-8 strings
 prompt                  = no                    # Don't prompt for DN
+cert_opt                = no_header
 subjectKeyIdentifier    = hash
 authorityKeyIdentifier  = keyid:always,issuer:always
 EOF
@@ -103,6 +104,7 @@ organizationName        = match                 # Must match "${ROOT_CA_LITERAL_
 organizationalUnitName  = optional              # Included if present
 commonName              = supplied              # Must be present
 
+
 # only used when signing intermediate CAs (accounts/organizations)
 [ signing_ca_ext ]
 keyUsage                = critical,keyCertSign,cRLSign
@@ -123,5 +125,5 @@ openssl req -new -nodes -sha256 -newkey rsa:2048 \
 openssl ca -selfsign -batch \
   -config "${ROOT_CA_DIR}/${ROOT_CA_LITERAL_NAME}.conf" \
   -in "${ROOT_CA_DIR}/${ROOT_CA_LITERAL_NAME}-root-ca.csr" \
-  -out "${ROOT_CA_DIR}/${ROOT_CA_LITERAL_NAME}-root-ca.crt"
+  -out "${ROOT_CA_DIR}/${ROOT_CA_LITERAL_NAME}-root-ca.crt" -certform PEM
 

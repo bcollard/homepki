@@ -86,15 +86,15 @@ EOF
 # create the Client cert request
 openssl req -new -nodes -sha256 -newkey rsa:2048 \
   -config "${CLIENT_DIR}/${CLIENT_NAME}.conf" \
-  -keyout "${CLIENT_DIR}/${CLIENT_NAME}-client.key" \
-  -out "${CLIENT_DIR}/${CLIENT_NAME}-client.csr"
+  -keyout "${CLIENT_DIR}/${CLIENT_NAME}.key" \
+  -out "${CLIENT_DIR}/${CLIENT_NAME}.csr"
 
 # sign the client cert with the intermediate CA
 openssl ca -batch \
   -config "${INTERMEDIATE_CA_DIR}/${INTERMEDIATE_CA_NAME}.conf" \
   -extensions client_ext \
-  -in "${CLIENT_DIR}/${CLIENT_NAME}-client.csr" \
-  -out "${CLIENT_DIR}/${CLIENT_NAME}-client.crt" \
+  -in "${CLIENT_DIR}/${CLIENT_NAME}.csr" \
+  -out "${CLIENT_DIR}/${CLIENT_NAME}.crt" \
   -days 365
 
 

@@ -86,15 +86,15 @@ EOF
 # create the Server cert request
 openssl req -new -nodes -sha256 -newkey rsa:2048 \
   -config "${SERVER_DIR}/${SERVER_NAME}.conf" \
-  -keyout "${SERVER_DIR}/${SERVER_NAME}-server.key" \
-  -out "${SERVER_DIR}/${SERVER_NAME}-server.csr"
+  -keyout "${SERVER_DIR}/${SERVER_NAME}.key" \
+  -out "${SERVER_DIR}/${SERVER_NAME}.csr"
 
 # sign the server cert with the intermediate CA
 openssl ca -batch \
   -config "${INTERMEDIATE_CA_DIR}/${INTERMEDIATE_CA_NAME}.conf" \
   -extensions server_ext \
-  -in "${SERVER_DIR}/${SERVER_NAME}-server.csr" \
-  -out "${SERVER_DIR}/${SERVER_NAME}-server.crt" \
+  -in "${SERVER_DIR}/${SERVER_NAME}.csr" \
+  -out "${SERVER_DIR}/${SERVER_NAME}.crt" \
   -days 365
 
 

@@ -39,8 +39,8 @@ echo "Creating server certificate for ${SERVER_NAME}..."
 
 # Generate server certificate
 step certificate create "${SERVER_NAME}.${INTERMEDIATE_CA_NAME}.${ROOT_CA_DOMAIN_NAME}" \
-  "${SERVER_DIR}/${SERVER_NAME}-server.crt" \
-  "${SERVER_DIR}/${SERVER_NAME}-server.key" \
+  "${SERVER_DIR}/${SERVER_NAME}.crt" \
+  "${SERVER_DIR}/${SERVER_NAME}.key" \
   --profile leaf \
   --ca "${INTERMEDIATE_CA_CERT}" \
   --ca-key "${INTERMEDIATE_CA_KEY}" \
