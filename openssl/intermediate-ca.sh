@@ -79,6 +79,7 @@ commonName              = ${INTERMEDIATE_CA_NAME}.${ROOT_CA_DOMAIN_NAME}
 keyUsage                = critical,keyCertSign,cRLSign
 basicConstraints        = critical,CA:true,pathlen:0
 
+
 # only used when signing leaf certificates (client or server)
 [ ca ]
 default_ca              = CA_default                          # The default ca section
@@ -100,8 +101,8 @@ x509_extensions         = tls_ca_ext                          # Desired extensio
 countryName             = optional              # Must match 'NO'
 stateOrProvinceName     = optional              # Included if present
 localityName            = optional              # Included if present
-organizationName        = match                 # Must match "${INTERMEDIATE_CA_NAME}"
-organizationalUnitName  = match              # Included if present
+organizationName        = match                 # Must match "${ROOT_CA_LITERAL_NAME}"
+organizationalUnitName  = match                 # Must match "${INTERMEDIATE_CA_NAME}"
 commonName              = supplied              # Must be present
 
 # only used when signing leaf server certificates
@@ -145,3 +146,8 @@ cat "${INTERMEDIATE_CA_DIR}/${INTERMEDIATE_CA_NAME}-intermediate-ca.crt" \
   "${ROOT_CA_DIR}/${ROOT_CA_LITERAL_NAME}-root-ca.crt" > \
   "${INTERMEDIATE_CA_DIR}/${INTERMEDIATE_CA_NAME}-intermediate-ca-chain.crt"
 
+
+#########################################
+# Suppress the certificate info from the chain
+#########################################
+sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' "${INTERMEDIATE_CA_DIR}/${INTERMEDIATE_CA_NAME}-intermediate-ca-chain.crt" > temp_file && mv temp_file "${INTERMEDIATE_CA_DIR}/${INTERMEDIATE_CA_NAME}-intermediate-ca-chain.crt"
