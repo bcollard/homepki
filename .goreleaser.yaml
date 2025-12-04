@@ -52,7 +52,7 @@ brews:
     repository:
       owner: bcollard
       name: homebrew-homepki
-      # token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}" # Optional, if you want to use a specific token
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}" # Optional, if you want to use a specific token
 
     # Directory folder inside the repository to put the formula.
     directory: Formula
