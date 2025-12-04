@@ -71,6 +71,28 @@ make server-cert
 make client-cert
 ```
 
+### Using Go CLI
+
+1. Build the CLI:
+```bash
+go build -o homepki
+```
+
+2. Create a complete PKI setup:
+```bash
+# Create root CA
+./homepki root-ca --domain runlocal.dev
+
+# Create intermediate CA
+./homepki intermediate-ca --domain runlocal.dev --name siemens
+
+# Create server certificate
+./homepki server-cert --domain runlocal.dev --intermediate siemens --server kong-gateway
+
+# Create client certificate
+./homepki client-cert --domain runlocal.dev --intermediate siemens --client my-client
+```
+
 ### Using Step CLI
 
 1. Navigate to the Step directory:
