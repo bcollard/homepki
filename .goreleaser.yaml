@@ -1,0 +1,75 @@
+version: 2
+project_name: homepki
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: tar.gz
+    # this name template makes the tarballs look like homepki_Linux_x86_64.tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    # use zip for windows
+    format_overrides:
+    - goos: windows
+      format: zip
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: "{{ .Tag }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+
+brews:
+  -
+    # Name of the recipe
+    name: homepki
+
+    # Repository to push the tap to.
+    repository:
+      owner: bcollard
+      name: homebrew-homepki
+      # token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}" # Optional, if you want to use a specific token
+
+    # Directory folder inside the repository to put the formula.
+    directory: Formula
+
+    # Homepage of your project.
+    homepage: "https://github.com/bcollard/homepki"
+
+    # Description of your project.
+    description: "A simple PKI management tool for local development"
+
+    # License of your project.
+    license: "MIT"
+
+    # Dependencies
+    # dependencies:
+    #   - name: git
+    
+    # Custom install script
+    install: |
+      bin.install "homepki"

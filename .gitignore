@@ -1,3 +1,7 @@
+# Binaries
+homepki
+dist/
+
 openssl/*/
 step/*/
 *.key

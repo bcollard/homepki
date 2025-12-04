@@ -13,6 +13,11 @@ var serverName string
 var serverCertCmd = &cobra.Command{
 	Use:   "server-cert",
 	Short: "Generate a Server Certificate",
+	Example: `  # Generate a server certificate for 'kong-gateway'
+  homepki server-cert --domain runlocal.dev --intermediate siemens --server kong-gateway
+
+  # List existing server certificates
+  homepki server-cert list --domain runlocal.dev --intermediate siemens`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if rootCADomain == "" {
 			return fmt.Errorf("root CA domain name is required")
@@ -25,7 +30,11 @@ var serverCertCmd = &cobra.Command{
 		}
 
 		rootCALiteralName := pki.GetRootCALiteralName(rootCADomain)
-		workDir := fmt.Sprintf("./%s", rootCALiteralName)
+		baseDir, err := getEffectiveWorkDir()
+		if err != nil {
+			return err
+		}
+		workDir := filepath.Join(baseDir, rootCALiteralName)
 		intermediateCADir := filepath.Join(workDir, intermediateCAName)
 		serverDir := filepath.Join(intermediateCADir, "server-tls")
 
@@ -113,7 +122,11 @@ var serverCertListCmd = &cobra.Command{
 		}
 
 		rootCALiteralName := pki.GetRootCALiteralName(rootCADomain)
-		workDir := fmt.Sprintf("./%s", rootCALiteralName)
+		baseDir, err := getEffectiveWorkDir()
+		if err != nil {
+			return err
+		}
+		workDir := filepath.Join(baseDir, rootCALiteralName)
 		intermediateCADir := filepath.Join(workDir, intermediateCAName)
 		serverDir := filepath.Join(intermediateCADir, "server-tls")
 

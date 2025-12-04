@@ -13,13 +13,22 @@ var rootCADomain string
 var rootCACmd = &cobra.Command{
 	Use:   "root-ca",
 	Short: "Generate a Root CA",
+	Example: `  # Generate a Root CA for runlocal.dev
+  homepki root-ca --domain runlocal.dev
+
+  # List existing Root CAs
+  homepki root-ca list`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if rootCADomain == "" {
 			return fmt.Errorf("root CA domain name is required")
 		}
 
 		rootCALiteralName := pki.GetRootCALiteralName(rootCADomain)
-		workDir := fmt.Sprintf("./%s", rootCALiteralName)
+		baseDir, err := getEffectiveWorkDir()
+		if err != nil {
+			return err
+		}
+		workDir := filepath.Join(baseDir, rootCALiteralName)
 		rootCADir := filepath.Join(workDir, "ca")
 
 		fmt.Printf("Initializing Root CA for %s in %s\n", rootCADomain, workDir)
@@ -135,13 +144,22 @@ var rootCAListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List existing Root CAs",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		dirs, err := pki.ListDirectories(".")
+		baseDir, err := getEffectiveWorkDir()
+		if err != nil {
+			return err
+		}
+		if exists, _ := pki.DirectoryExists(baseDir); !exists {
+			fmt.Println("No Root CAs found.")
+			return nil
+		}
+
+		dirs, err := pki.ListDirectories(baseDir)
 		if err != nil {
 			return err
 		}
 		fmt.Println("Existing Root CAs:")
 		for _, dir := range dirs {
-			if exists, _ := pki.DirectoryExists(filepath.Join(dir, "ca")); exists {
+			if exists, _ := pki.DirectoryExists(filepath.Join(baseDir, dir, "ca")); exists {
 				fmt.Printf("- %s\n", dir)
 			}
 		}

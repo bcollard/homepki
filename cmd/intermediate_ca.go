@@ -13,6 +13,11 @@ var intermediateCAName string
 var intermediateCACmd = &cobra.Command{
 	Use:   "intermediate-ca",
 	Short: "Generate an Intermediate CA",
+	Example: `  # Generate an Intermediate CA named 'siemens' for runlocal.dev
+  homepki intermediate-ca --domain runlocal.dev --name siemens
+
+  # List existing Intermediate CAs for runlocal.dev
+  homepki intermediate-ca list --domain runlocal.dev`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if rootCADomain == "" {
 			return fmt.Errorf("root CA domain name is required")
@@ -22,7 +27,11 @@ var intermediateCACmd = &cobra.Command{
 		}
 
 		rootCALiteralName := pki.GetRootCALiteralName(rootCADomain)
-		workDir := fmt.Sprintf("./%s", rootCALiteralName)
+		baseDir, err := getEffectiveWorkDir()
+		if err != nil {
+			return err
+		}
+		workDir := filepath.Join(baseDir, rootCALiteralName)
 		rootCADir := filepath.Join(workDir, "ca")
 		intermediateCADir := filepath.Join(workDir, intermediateCAName)
 
@@ -197,7 +206,11 @@ var intermediateCAListCmd = &cobra.Command{
 			return fmt.Errorf("root CA domain name is required")
 		}
 		rootCALiteralName := pki.GetRootCALiteralName(rootCADomain)
-		workDir := fmt.Sprintf("./%s", rootCALiteralName)
+		baseDir, err := getEffectiveWorkDir()
+		if err != nil {
+			return err
+		}
+		workDir := filepath.Join(baseDir, rootCALiteralName)
 
 		if exists, _ := pki.DirectoryExists(workDir); !exists {
 			return fmt.Errorf("root CA directory %s does not exist", workDir)

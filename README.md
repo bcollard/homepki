@@ -93,6 +93,21 @@ go build -o homepki
 ./homepki client-cert --domain runlocal.dev --intermediate siemens --client my-client
 ```
 
+### Configuration
+
+By default, `homepki` stores all generated certificates and keys in `~/.homepki`.
+
+You can override this location using:
+1.  The `--workdir` flag:
+    ```bash
+    ./homepki root-ca --domain runlocal.dev --workdir /path/to/pki
+    ```
+2.  The `HOMEPKI_WORKDIR` environment variable:
+    ```bash
+    export HOMEPKI_WORKDIR=/path/to/pki
+    ./homepki root-ca --domain runlocal.dev
+    ```
+
 ### Using Step CLI
 
 1. Navigate to the Step directory:
