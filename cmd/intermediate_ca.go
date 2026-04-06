@@ -202,8 +202,9 @@ subjectKeyIdentifier    = hash
 }
 
 var intermediateCAListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List Intermediate CAs with expiry and chain verification against the Root CA",
+	Use:     "list",
+	Aliases: []string{"ls", "l"},
+	Short:   "List Intermediate CAs with expiry and chain verification against the Root CA",
 	Example: `  homepki intermediate-ca list --domain runlocal.dev
   homepki intermediate-ca list --domain runlocal.dev -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {

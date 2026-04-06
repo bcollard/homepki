@@ -115,8 +115,9 @@ DNS.1 = %s.%s.%s
 }
 
 var clientCertListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List client certificates with expiry and chain verification against the Intermediate and Root CA",
+	Use:     "list",
+	Aliases: []string{"ls", "l"},
+	Short:   "List client certificates with expiry and chain verification against the Intermediate and Root CA",
 	Example: `  homepki client-cert list --domain runlocal.dev --intermediate bu1
   homepki client-cert list --domain runlocal.dev --intermediate bu1 -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {

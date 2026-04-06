@@ -144,8 +144,9 @@ subjectKeyIdentifier    = hash
 }
 
 var rootCAListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List Root CAs with expiry and self-signature validity",
+	Use:     "list",
+	Aliases: []string{"ls", "l"},
+	Short:   "List Root CAs with expiry and self-signature validity",
 	Example: `  homepki root-ca list
   homepki root-ca list -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {

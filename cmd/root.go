@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -8,6 +9,7 @@ import (
 )
 
 var workDir string
+var versionString string
 
 var rootCmd = &cobra.Command{
 	Use:   "homepki",
@@ -15,8 +17,18 @@ var rootCmd = &cobra.Command{
 	Long:  `A tool to generate root certificates, intermediate certificates, and leaf certificates for both client and server.`,
 }
 
+var versionCmd = &cobra.Command{
+	Use:     "version",
+	Short:   "Print version information",
+	Aliases: []string{"v"},
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Println("homepki " + versionString)
+	},
+}
+
 func SetVersion(version, commit, date string) {
-	rootCmd.Version = version + " (" + commit + ", " + date + ")"
+	versionString = version + " (" + commit + ", " + date + ")"
+	rootCmd.Version = versionString
 }
 
 func Execute() {
@@ -28,6 +40,7 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&workDir, "workdir", "", "Working directory (default is $HOMEPKI_WORKDIR or ~/.homepki)")
+	rootCmd.AddCommand(versionCmd)
 }
 
 func getEffectiveWorkDir() (string, error) {
