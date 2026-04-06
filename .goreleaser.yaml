@@ -50,18 +50,16 @@ changelog:
       - Merge pull request
       - Merge branch
 
-brews:
+homebrew_casks:
   - name: homepki
+    binaries: ["homepki"]
     repository:
       owner: bcollard
       name: homebrew-homepki
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    directory: Formula
+    directory: Casks
     homepage: "https://github.com/bcollard/homepki"
     description: "A simple PKI management tool for local development"
-    license: "MIT"
     commit_author:
       name: goreleaserbot
       email: bot@goreleaser.com
-    install: |
-      bin.install "homepki"
