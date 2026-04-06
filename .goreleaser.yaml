@@ -29,6 +29,9 @@ archives:
     files:
       - LICENSE
       - README.md
+      - src: .third_party_licenses/**/*
+        dst: third_party_licenses
+        strip_parent: true
 
 checksum:
   name_template: checksums.txt
@@ -57,5 +60,8 @@ brews:
     homepage: "https://github.com/bcollard/homepki"
     description: "A simple PKI management tool for local development"
     license: "MIT"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
     install: |
       bin.install "homepki"
