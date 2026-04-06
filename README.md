@@ -5,7 +5,8 @@ A simple PKI management tool for local development. Create and manage three-tier
 ## Install
 
 ```bash
-brew install bcollard/homepki/homepki
+brew tap bcollard/homepki
+brew install --cask homepki
 ```
 
 ## Quick Start
