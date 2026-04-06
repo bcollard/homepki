@@ -12,12 +12,15 @@ var rootCADomain string
 
 var rootCACmd = &cobra.Command{
 	Use:   "root-ca",
-	Short: "Generate a Root CA",
+	Short: "Generate a self-signed Root CA",
 	Example: `  # Generate a Root CA for runlocal.dev
   homepki root-ca --domain runlocal.dev
 
   # List existing Root CAs
-  homepki root-ca list`,
+  homepki root-ca list
+
+  # List as JSON
+  homepki root-ca list -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if rootCADomain == "" {
 			return fmt.Errorf("root CA domain name is required")
@@ -142,14 +145,20 @@ subjectKeyIdentifier    = hash
 
 var rootCAListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List existing Root CAs",
+	Short: "List Root CAs with expiry and self-signature validity",
+	Example: `  homepki root-ca list
+  homepki root-ca list -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		baseDir, err := getEffectiveWorkDir()
 		if err != nil {
 			return err
 		}
 		if exists, _ := pki.DirectoryExists(baseDir); !exists {
-			fmt.Println("No Root CAs found.")
+			if outputFormat == "json" {
+				fmt.Println("[]")
+			} else {
+				fmt.Println("No Root CAs found.")
+			}
 			return nil
 		}
 
@@ -157,13 +166,30 @@ var rootCAListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		fmt.Println("Existing Root CAs:")
+
+		var entries []certEntry
 		for _, dir := range dirs {
 			if exists, _ := pki.DirectoryExists(filepath.Join(baseDir, dir, "ca")); exists {
-				fmt.Printf("- %s\n", dir)
+				certPath := filepath.Join(baseDir, dir, "ca", fmt.Sprintf("%s-root-ca.crt", dir))
+				expiry, daysLeft, err := pki.GetCertExpiry(certPath)
+				expiryStr, days := "unknown", -1
+				if err == nil {
+					expiryStr = expiry.Format("2006-01-02")
+					days = daysLeft
+				}
+				entries = append(entries, certEntry{
+					name:     dir,
+					expiry:   expiryStr,
+					daysLeft: days,
+					chainErr: pki.VerifyRootCert(certPath),
+				})
 			}
 		}
-		return nil
+
+		if outputFormat != "json" {
+			fmt.Println("Root CAs:")
+		}
+		return printCerts(entries)
 	},
 }
 
@@ -172,4 +198,5 @@ func init() {
 	rootCACmd.AddCommand(rootCAListCmd)
 	rootCACmd.Flags().StringVarP(&rootCADomain, "domain", "d", "", "Root CA domain name (e.g., runlocal.dev)")
 	rootCACmd.MarkFlagRequired("domain")
+	rootCAListCmd.Flags().StringVarP(&outputFormat, "output", "o", "table", "Output format: table or json")
 }

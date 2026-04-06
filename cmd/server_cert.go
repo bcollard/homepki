@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"crypto/x509"
 	"fmt"
 	"path/filepath"
 
@@ -12,12 +13,15 @@ var serverName string
 
 var serverCertCmd = &cobra.Command{
 	Use:   "server-cert",
-	Short: "Generate a Server Certificate",
+	Short: "Generate a server TLS certificate signed by an Intermediate CA",
 	Example: `  # Generate a server certificate for 'kong-gateway'
-  homepki server-cert --domain runlocal.dev --intermediate siemens --server kong-gateway
+  homepki server-cert --domain runlocal.dev --intermediate bu1 --server kong-gateway
 
-  # List existing server certificates
-  homepki server-cert list --domain runlocal.dev --intermediate siemens`,
+  # List existing server certificates with chain verification
+  homepki server-cert list --domain runlocal.dev --intermediate bu1
+
+  # List as JSON
+  homepki server-cert list --domain runlocal.dev --intermediate bu1 -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if rootCADomain == "" {
 			return fmt.Errorf("root CA domain name is required")
@@ -112,7 +116,9 @@ DNS.1 = %s.%s.%s
 
 var serverCertListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List existing Server Certificates",
+	Short: "List server certificates with expiry and chain verification against the Intermediate and Root CA",
+	Example: `  homepki server-cert list --domain runlocal.dev --intermediate bu1
+  homepki server-cert list --domain runlocal.dev --intermediate bu1 -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if rootCADomain == "" {
 			return fmt.Errorf("root CA domain name is required")
@@ -134,22 +140,42 @@ var serverCertListCmd = &cobra.Command{
 			return fmt.Errorf("server certs directory %s does not exist", serverDir)
 		}
 
+		rootCACertPath := filepath.Join(workDir, "ca", fmt.Sprintf("%s-root-ca.crt", rootCALiteralName))
+		intermediateCACertPath := filepath.Join(intermediateCADir, fmt.Sprintf("%s-intermediate-ca.crt", intermediateCAName))
+
 		files, err := pki.ListFiles(serverDir, ".crt")
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Existing Server Certificates for %s/%s:\n", rootCADomain, intermediateCAName)
+
+		var entries []certEntry
 		for _, file := range files {
-			fmt.Printf("- %s\n", file)
+			certPath := filepath.Join(serverDir, file)
+			expiry, daysLeft, err := pki.GetCertExpiry(certPath)
+			expiryStr, days := "unknown", -1
+			if err == nil {
+				expiryStr = expiry.Format("2006-01-02")
+				days = daysLeft
+			}
+			entries = append(entries, certEntry{
+				name:     file,
+				expiry:   expiryStr,
+				daysLeft: days,
+				chainErr: pki.VerifyLeafCert(certPath, intermediateCACertPath, rootCACertPath, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}),
+			})
 		}
-		return nil
+
+		if outputFormat != "json" {
+			fmt.Printf("Server Certificates for %s/%s:\n", rootCADomain, intermediateCAName)
+		}
+		return printCerts(entries)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(serverCertCmd)
 	serverCertCmd.Flags().StringVarP(&rootCADomain, "domain", "d", "", "Root CA domain name (e.g., runlocal.dev)")
-	serverCertCmd.Flags().StringVarP(&intermediateCAName, "intermediate", "i", "", "Intermediate CA name (e.g., siemens)")
+	serverCertCmd.Flags().StringVarP(&intermediateCAName, "intermediate", "i", "", "Intermediate CA name (e.g., bu1)")
 	serverCertCmd.Flags().StringVarP(&serverName, "server", "s", "", "Server name (e.g., kong-gateway-clustering)")
 	serverCertCmd.MarkFlagRequired("domain")
 	serverCertCmd.MarkFlagRequired("intermediate")
@@ -157,7 +183,8 @@ func init() {
 
 	serverCertCmd.AddCommand(serverCertListCmd)
 	serverCertListCmd.Flags().StringVarP(&rootCADomain, "domain", "d", "", "Root CA domain name (e.g., runlocal.dev)")
-	serverCertListCmd.Flags().StringVarP(&intermediateCAName, "intermediate", "i", "", "Intermediate CA name (e.g., siemens)")
+	serverCertListCmd.Flags().StringVarP(&intermediateCAName, "intermediate", "i", "", "Intermediate CA name (e.g., bu1)")
+	serverCertListCmd.Flags().StringVarP(&outputFormat, "output", "o", "table", "Output format: table or json")
 	serverCertListCmd.MarkFlagRequired("domain")
 	serverCertListCmd.MarkFlagRequired("intermediate")
 }

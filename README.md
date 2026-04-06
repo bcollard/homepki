@@ -1,205 +1,175 @@
-# PKI (Public Key Infrastructure) Management
+# homepki
 
-A comprehensive PKI management system for creating and managing three-tier certificate authorities, intermediate CAs, and TLS certificates using OpenSSL and Step CLI.
+A simple PKI management tool for local development. Create and manage three-tier certificate authorities, intermediate CAs, and TLS certificates with a single CLI.
+
+## Install
+
+```bash
+brew tap bcollard/homepki
+brew install homepki
+```
+
+## Quick Start
+
+```bash
+# Create root CA
+homepki root-ca --domain runlocal.dev
+
+# Create intermediate CA
+homepki intermediate-ca --domain runlocal.dev --name bu1
+
+# Create server certificate
+homepki server-cert --domain runlocal.dev --intermediate bu1 --server kong-gateway
+
+# Create client certificate
+homepki client-cert --domain runlocal.dev --intermediate bu1 --client my-client
+```
+
+Certificates and keys are stored in `~/.homepki` by default.
+
+## Configuration
+
+Override the default storage location using:
+
+- The `--workdir` flag:
+  ```bash
+  homepki root-ca --domain runlocal.dev --workdir /path/to/pki
+  ```
+- The `HOMEPKI_WORKDIR` environment variable:
+  ```bash
+  export HOMEPKI_WORKDIR=/path/to/pki
+  homepki root-ca --domain runlocal.dev
+  ```
 
 ## Overview
 
-This project implements a three-tier PKI structure consisting of:
+`homepki` implements a three-tier PKI structure:
 - **Root CA**: The top-level certificate authority
 - **Intermediate CA**: Organization/tenant-specific intermediate certificate authorities
 - **End-entity certificates**: Server and client certificates for services
 
-It provides two implementations: one using `openssl` and another using `step`.
+## Build from Source
+
+```bash
+go build -o homepki
+```
 
 ## Project Structure
 
 ```
 .
-├── openssl/
-│   ├── Makefile                    # Main automation targets for OpenSSL
-│   ├── root-ca.sh                  # Root CA creation script
-│   ├── intermediate-ca.sh          # Intermediate CA creation script
-│   ├── server-cert.sh              # Server certificate creation script
-│   ├── client-cert.sh              # Client certificate creation script
-│   └── runlocal-dev/               # Example PKI deployment
-│       ├── runlocal-dev-defaults.conf
-│       ├── ca/                     # Root CA files
-│       └── bco/                    # Example intermediate CA
-│           ├── server-tls/         # Server certificates
-│           └── client-tls/         # Client certificates
-└── step/
-    ├── Makefile                    # Main automation targets for Step CLI
-    ├── root-ca.sh                  # Root CA creation script
-    ├── intermediate-ca.sh          # Intermediate CA creation script
-    ├── server-cert.sh              # Server certificate creation script
-    └── client-cert.sh              # Client certificate creation script
-```
-
-## Prerequisites
-
-- Bash shell environment
-- Make utility
-- For the `openssl` implementation: OpenSSL installed
-- For the `step` implementation: Step CLI installed
-
-## Quick Start
-
-### Using OpenSSL
-
-1. Navigate to the OpenSSL directory:
-```bash
-cd openssl
-```
-
-2. View available commands:
-```bash
-make help
-```
-
-3. Create a complete PKI setup:
-```bash
-# Create root CA
-make root-ca
-
-# Create intermediate CA
-make intermediate-ca
-
-# Create server certificate
-make server-cert
-
-# Create client certificate
-make client-cert
-```
-
-### Using Go CLI
-
-1. Build the CLI:
-```bash
-go build -o homepki
-```
-
-2. Create a complete PKI setup:
-```bash
-# Create root CA
-./homepki root-ca --domain runlocal.dev
-
-# Create intermediate CA
-./homepki intermediate-ca --domain runlocal.dev --name siemens
-
-# Create server certificate
-./homepki server-cert --domain runlocal.dev --intermediate siemens --server kong-gateway
-
-# Create client certificate
-./homepki client-cert --domain runlocal.dev --intermediate siemens --client my-client
-```
-
-### Configuration
-
-By default, `homepki` stores all generated certificates and keys in `~/.homepki`.
-
-You can override this location using:
-1.  The `--workdir` flag:
-    ```bash
-    ./homepki root-ca --domain runlocal.dev --workdir /path/to/pki
-    ```
-2.  The `HOMEPKI_WORKDIR` environment variable:
-    ```bash
-    export HOMEPKI_WORKDIR=/path/to/pki
-    ./homepki root-ca --domain runlocal.dev
-    ```
-
-### Using Step CLI
-
-1. Navigate to the Step directory:
-```bash
-cd step
-```
-
-2. View available commands:
-```bash
-make help
-```
-
-3. Create a complete PKI setup:
-```bash
-# Create root CA
-make root-ca
-
-# Create intermediate CA
-make intermediate-ca
-
-# Create server certificate
-make server-cert
-
-# Create client certificate
-make client-cert
+├── main.go                         # Entry point
+├── go.mod
+├── cmd/
+│   ├── root.go                     # CLI setup, --workdir flag
+│   ├── root_ca.go                  # root-ca command (generate + list)
+│   ├── intermediate_ca.go          # intermediate-ca command (generate + list)
+│   ├── server_cert.go              # server-cert command (generate + list)
+│   └── client_cert.go              # client-cert command (generate + list)
+└── pkg/
+    └── pki/
+        └── pki.go                  # PKI helpers (OpenSSL wrappers, cert parsing)
 ```
 
 ## Usage Guide
 
-The usage for both `openssl` and `step` implementations is similar. You will be prompted for necessary information like domain names and organization names.
-
 ### 1. Creating a Root CA
 
-Run the root CA creation script from either the `openssl` or `step` directory:
 ```bash
-make root-ca
-```
+homepki root-ca --domain runlocal.dev
 
-You'll be prompted for:
-- **Root CA domain name** (e.g., `runlocal.dev`)
+# List root CAs (table, default)
+homepki root-ca list
+
+# List as JSON
+homepki root-ca list -o json
+```
 
 This creates:
 - Root CA directory structure
-- Root CA private key and certificate
+- Root CA private key and self-signed certificate
 
 ### 2. Creating an Intermediate CA
 
-After creating a root CA, create an intermediate CA:
 ```bash
-make intermediate-ca
+homepki intermediate-ca --domain runlocal.dev --name bu1
+
+# List intermediate CAs (table, default)
+homepki intermediate-ca list --domain runlocal.dev
+
+# List as JSON
+homepki intermediate-ca list --domain runlocal.dev -o json
 ```
 
-You'll be prompted for:
-- **Root CA domain name** (must match existing root CA)
-- **Organization/tenant name** (e.g., `bco`, `siemens`)
-
 This creates:
-- Intermediate CA directory structure
-- Intermediate CA private key and certificate signed by root CA
-- Certificate chain file for validation
+- Intermediate CA private key and certificate signed by the root CA
+- Certificate chain file (`{name}-intermediate-ca-chain.crt`)
 
 ### 3. Creating Server Certificates
 
-Create TLS certificates for servers:
 ```bash
-make server-cert
+homepki server-cert --domain runlocal.dev --intermediate bu1 --server kong-gateway
+
+# List server certificates (table, default)
+homepki server-cert list --domain runlocal.dev --intermediate bu1
+
+# List as JSON
+homepki server-cert list --domain runlocal.dev --intermediate bu1 -o json
 ```
-
-You'll be prompted for:
-- **Root CA domain name**
-- **Organization/tenant name** (must match existing intermediate CA)
-- **Server name** (e.g., `kong-gateway-clustering`)
-
-This creates server certificates suitable for TLS/SSL services.
 
 ### 4. Creating Client Certificates
 
-Create certificates for client authentication:
 ```bash
-make client-cert
+homepki client-cert --domain runlocal.dev --intermediate bu1 --client my-service
+
+# List client certificates (table, default)
+homepki client-cert list --domain runlocal.dev --intermediate bu1
+
+# List as JSON
+homepki client-cert list --domain runlocal.dev --intermediate bu1 -o json
 ```
 
-Similar to server certificates but configured for client authentication use cases.
+### Listing and Chain Verification
+
+All `list` subcommands verify the certificate's chain of trust and support two output formats via `-o`/`--output`:
+
+| Format | Description |
+|--------|-------------|
+| `table` | Human-readable table with coloured chain status (default) |
+| `json`  | Machine-readable JSON array, no extra output |
+
+Chain validity is checked at list time:
+- `root-ca list` — verifies each root cert is validly self-signed
+- `intermediate-ca list` — verifies the intermediate was signed by the root CA
+- `server-cert list` / `client-cert list` — verifies the leaf cert chains through the intermediate to the root CA
+
+Example JSON output:
+```json
+[
+  {
+    "name": "kong-gateway.crt",
+    "expires": "2027-04-01",
+    "days_left": 360,
+    "chain_valid": true
+  },
+  {
+    "name": "old.crt",
+    "expires": "2025-01-01",
+    "days_left": -270,
+    "chain_valid": false,
+    "chain_error": "x509: certificate has expired or is not yet valid"
+  }
+]
+```
 
 ## Security Features
 
 - **2048-bit RSA keys** for strong encryption
-- **Private key protection** (optional with `step`)
 - **UTF-8 encoding** for international character support
 - **Proper file permissions** (700 for private directories)
-- **Certificate database tracking** for revocation management (with `openssl`)
+- **Certificate database tracking** for revocation management
 - **Serial number management** for unique certificate identification
+- **Chain verification** on all `list` commands
 
 ## File Organization
 
@@ -224,13 +194,12 @@ Similar to server certificates but configured for client authentication use case
         └── {org}-intermediate-ca.key # Intermediate private key
 ```
 
-## Configuration
+## Defaults
 
-The `openssl` implementation uses OpenSSL configuration files with sensible defaults. The `step` implementation uses command-line flags and profiles for configuration.
-
-- **Key size**: 2048 bits
-- **Key protection**: Encrypted private keys (optional with `step`)
-- **Extensions**: Proper certificate extensions for CA and end-entity certs
+- **Key size**: 2048-bit RSA
+- **Digest**: SHA-256
+- **Validity**: 365 days for leaf certs, 2190 days (~6 years) for CAs
+- **Extensions**: Proper X.509 extensions for CA and end-entity certificates
 
 ## Best Practices
 
@@ -240,14 +209,6 @@ The `openssl` implementation uses OpenSSL configuration files with sensible defa
 4. **Rotation**: Plan for certificate renewal and CA rotation
 5. **Monitoring**: Track certificate expiration dates
 
-## Example Deployment
-
-The `runlocal-dev` directory (created by the scripts) contains an example PKI deployment for development environments, demonstrating:
-- Root CA for `runlocal.dev` domain
-- Intermediate CA for `bco` organization
-- Server certificates for Kong Gateway clustering
-- Client certificates for service authentication
-
 ## Troubleshooting
 
 ### Common Issues
@@ -255,43 +216,35 @@ The `runlocal-dev` directory (created by the scripts) contains an example PKI de
 1. **Permission denied**: Ensure proper file permissions on private directories
 2. **Certificate validation**: Check certificate chains and trust relationships
 3. **Expired certificates**: Monitor and renew certificates before expiration
-4. **Configuration errors**: Validate OpenSSL configuration syntax or `step` command arguments
+4. **Configuration errors**: Validate OpenSSL configuration syntax
 
 ### Verification Commands
 
-#### OpenSSL
-```bash
-# Verify certificate
-openssl x509 -in certificate.crt -text -noout
-
-# Verify certificate chain
-openssl verify -CAfile root-ca.crt -untrusted intermediate-ca.crt end-entity.crt
-
-# Check private key
-openssl rsa -in private-key.key -check
-```
-
-#### Step CLI
 ```bash
 # Inspect a certificate
-step certificate inspect certificate.crt
+openssl x509 -in certificate.crt -text -noout
 
-# Verify a certificate chain
-step certificate verify end-entity.crt --roots root-ca.crt --intermediates intermediate-ca.crt
+# Manually verify a certificate chain
+openssl verify -CAfile root-ca.crt -untrusted intermediate-ca.crt end-entity.crt
+
+# Check a private key
+openssl rsa -in private-key.key -check
 ```
 
 ## License
 
-This project is for internal use and development purposes.
+MIT License
+
+Copyright (c) 2024 Baptiste Collard
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ## Contributing
 
-When contributing to this PKI system:
-1. Test all scripts thoroughly in isolated environments
+1. Test changes thoroughly in isolated environments
 2. Follow existing naming conventions
-3. Update documentation for any new features
-4. Ensure security best practices are maintained
-
-## Support
-
-For questions or issues with this PKI system, please refer to the OpenSSL or Step CLI documentation or consult with your security team.
+3. Ensure security best practices are maintained

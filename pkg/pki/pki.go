@@ -1,11 +1,14 @@
 package pki
 
 import (
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // CreateDirectory creates a directory if it doesn't exist.
@@ -124,6 +127,126 @@ func ListDirectories(path string) ([]string, error) {
 		}
 	}
 	return dirs, nil
+}
+
+// GetCertExpiry parses a PEM certificate file and returns its expiry time and days remaining.
+func GetCertExpiry(certPath string) (time.Time, int, error) {
+	data, err := os.ReadFile(certPath)
+	if err != nil {
+		return time.Time{}, 0, err
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return time.Time{}, 0, fmt.Errorf("failed to decode PEM in %s", certPath)
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return time.Time{}, 0, err
+	}
+	daysLeft := int(time.Until(cert.NotAfter).Hours() / 24)
+	return cert.NotAfter, daysLeft, nil
+}
+
+// VerifyRootCert verifies that the root CA cert at rootCACertPath is a valid self-signed certificate.
+func VerifyRootCert(rootCACertPath string) error {
+	data, err := os.ReadFile(rootCACertPath)
+	if err != nil {
+		return err
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return fmt.Errorf("failed to decode PEM in %s", rootCACertPath)
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return fmt.Errorf("root CA cert: %w", err)
+	}
+
+	roots := x509.NewCertPool()
+	roots.AddCert(cert)
+
+	_, err = cert.Verify(x509.VerifyOptions{
+		Roots:     roots,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+	})
+	return err
+}
+
+// VerifyIntermediateCert verifies that the intermediate CA cert at intermediateCertPath
+// was signed by the root CA at rootCACertPath.
+func VerifyIntermediateCert(intermediateCertPath, rootCACertPath string) error {
+	loadCert := func(path string) (*x509.Certificate, error) {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		block, _ := pem.Decode(data)
+		if block == nil {
+			return nil, fmt.Errorf("failed to decode PEM in %s", path)
+		}
+		return x509.ParseCertificate(block.Bytes)
+	}
+
+	intermediateCert, err := loadCert(intermediateCertPath)
+	if err != nil {
+		return fmt.Errorf("intermediate cert: %w", err)
+	}
+	rootCACert, err := loadCert(rootCACertPath)
+	if err != nil {
+		return fmt.Errorf("root CA cert: %w", err)
+	}
+
+	roots := x509.NewCertPool()
+	roots.AddCert(rootCACert)
+
+	_, err = intermediateCert.Verify(x509.VerifyOptions{
+		Roots:     roots,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+	})
+	return err
+}
+
+// VerifyLeafCert verifies that the leaf cert at leafCertPath was signed by the
+// intermediate CA at intermediateCertPath, which in turn was signed by the root
+// CA at rootCACertPath. keyUsages specifies the expected extended key usages
+// (e.g. x509.ExtKeyUsageServerAuth or x509.ExtKeyUsageClientAuth).
+func VerifyLeafCert(leafCertPath, intermediateCertPath, rootCACertPath string, keyUsages []x509.ExtKeyUsage) error {
+	loadCert := func(path string) (*x509.Certificate, error) {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		block, _ := pem.Decode(data)
+		if block == nil {
+			return nil, fmt.Errorf("failed to decode PEM in %s", path)
+		}
+		return x509.ParseCertificate(block.Bytes)
+	}
+
+	leafCert, err := loadCert(leafCertPath)
+	if err != nil {
+		return fmt.Errorf("leaf cert: %w", err)
+	}
+	intermediateCert, err := loadCert(intermediateCertPath)
+	if err != nil {
+		return fmt.Errorf("intermediate cert: %w", err)
+	}
+	rootCACert, err := loadCert(rootCACertPath)
+	if err != nil {
+		return fmt.Errorf("root CA cert: %w", err)
+	}
+
+	roots := x509.NewCertPool()
+	roots.AddCert(rootCACert)
+	intermediates := x509.NewCertPool()
+	intermediates.AddCert(intermediateCert)
+
+	_, err = leafCert.Verify(x509.VerifyOptions{
+		Roots:         roots,
+		Intermediates: intermediates,
+		KeyUsages:     keyUsages,
+	})
+	return err
 }
 
 // ListFiles lists files with a specific extension in a given path.

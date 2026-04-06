@@ -12,12 +12,15 @@ var intermediateCAName string
 
 var intermediateCACmd = &cobra.Command{
 	Use:   "intermediate-ca",
-	Short: "Generate an Intermediate CA",
-	Example: `  # Generate an Intermediate CA named 'siemens' for runlocal.dev
-  homepki intermediate-ca --domain runlocal.dev --name siemens
+	Short: "Generate an Intermediate CA signed by a Root CA",
+	Example: `  # Generate an Intermediate CA named 'bu1' for runlocal.dev
+  homepki intermediate-ca --domain runlocal.dev --name bu1
 
-  # List existing Intermediate CAs for runlocal.dev
-  homepki intermediate-ca list --domain runlocal.dev`,
+  # List existing Intermediate CAs with chain verification
+  homepki intermediate-ca list --domain runlocal.dev
+
+  # List as JSON
+  homepki intermediate-ca list --domain runlocal.dev -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if rootCADomain == "" {
 			return fmt.Errorf("root CA domain name is required")
@@ -200,7 +203,9 @@ subjectKeyIdentifier    = hash
 
 var intermediateCAListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List existing Intermediate CAs",
+	Short: "List Intermediate CAs with expiry and chain verification against the Root CA",
+	Example: `  homepki intermediate-ca list --domain runlocal.dev
+  homepki intermediate-ca list --domain runlocal.dev -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if rootCADomain == "" {
 			return fmt.Errorf("root CA domain name is required")
@@ -216,32 +221,51 @@ var intermediateCAListCmd = &cobra.Command{
 			return fmt.Errorf("root CA directory %s does not exist", workDir)
 		}
 
+		rootCACertPath := filepath.Join(workDir, "ca", fmt.Sprintf("%s-root-ca.crt", rootCALiteralName))
+
 		dirs, err := pki.ListDirectories(workDir)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Existing Intermediate CAs for %s:\n", rootCADomain)
+
+		var entries []certEntry
 		for _, dir := range dirs {
 			if dir == "ca" {
 				continue
 			}
-			// Check if it looks like an intermediate CA (has private dir?)
 			if exists, _ := pki.DirectoryExists(filepath.Join(workDir, dir, "private")); exists {
-				fmt.Printf("- %s\n", dir)
+				certPath := filepath.Join(workDir, dir, fmt.Sprintf("%s-intermediate-ca.crt", dir))
+				expiry, daysLeft, err := pki.GetCertExpiry(certPath)
+				expiryStr, days := "unknown", -1
+				if err == nil {
+					expiryStr = expiry.Format("2006-01-02")
+					days = daysLeft
+				}
+				entries = append(entries, certEntry{
+					name:     dir,
+					expiry:   expiryStr,
+					daysLeft: days,
+					chainErr: pki.VerifyIntermediateCert(certPath, rootCACertPath),
+				})
 			}
 		}
-		return nil
+
+		if outputFormat != "json" {
+			fmt.Printf("Intermediate CAs for %s:\n", rootCADomain)
+		}
+		return printCerts(entries)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(intermediateCACmd)
 	intermediateCACmd.Flags().StringVarP(&rootCADomain, "domain", "d", "", "Root CA domain name (e.g., runlocal.dev)")
-	intermediateCACmd.Flags().StringVarP(&intermediateCAName, "name", "n", "", "Intermediate CA name (e.g., siemens)")
+	intermediateCACmd.Flags().StringVarP(&intermediateCAName, "name", "n", "", "Intermediate CA name (e.g., bu1)")
 	intermediateCACmd.MarkFlagRequired("domain")
 	intermediateCACmd.MarkFlagRequired("name")
 
 	intermediateCACmd.AddCommand(intermediateCAListCmd)
 	intermediateCAListCmd.Flags().StringVarP(&rootCADomain, "domain", "d", "", "Root CA domain name (e.g., runlocal.dev)")
+	intermediateCAListCmd.Flags().StringVarP(&outputFormat, "output", "o", "table", "Output format: table or json")
 	intermediateCAListCmd.MarkFlagRequired("domain")
 }

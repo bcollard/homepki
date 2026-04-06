@@ -15,6 +15,10 @@ var rootCmd = &cobra.Command{
 	Long:  `A tool to generate root certificates, intermediate certificates, and leaf certificates for both client and server.`,
 }
 
+func SetVersion(version, commit, date string) {
+	rootCmd.Version = version + " (" + commit + ", " + date + ")"
+}
+
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
