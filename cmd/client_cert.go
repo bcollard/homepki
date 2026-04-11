@@ -138,7 +138,13 @@ var clientCertListCmd = &cobra.Command{
 		clientDir := filepath.Join(intermediateCADir, "client-tls")
 
 		if exists, _ := pki.DirectoryExists(clientDir); !exists {
-			return fmt.Errorf("client certs directory %s does not exist", clientDir)
+			if outputFormat != "json" {
+				fmt.Printf("Client Certificates for %s/%s:\n", rootCADomain, intermediateCAName)
+				fmt.Println("No client certificates found.")
+			} else {
+				fmt.Println("[]")
+			}
+			return nil
 		}
 
 		rootCACertPath := filepath.Join(workDir, "ca", fmt.Sprintf("%s-root-ca.crt", rootCALiteralName))
