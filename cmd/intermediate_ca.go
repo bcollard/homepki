@@ -104,6 +104,7 @@ default_md              = sha256                              # MD to use
 name_opt                = multiline,-esc_msb,utf8                                       # Subject DN display options
 default_days            = 2190                                # How long to certify for
 x509_extensions         = tls_ca_ext                          # Desired extensions
+copy_extensions         = copy                                # Copy SAN (and other extensions) from the CSR into the signed cert
 
 [ match_pol ]
 countryName             = optional              # Must match 'NO'

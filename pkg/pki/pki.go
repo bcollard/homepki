@@ -4,6 +4,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -247,6 +248,49 @@ func VerifyLeafCert(leafCertPath, intermediateCertPath, rootCACertPath string, k
 		KeyUsages:     keyUsages,
 	})
 	return err
+}
+
+// BuildSANSection generates an openssl `[ sectionName ]` block of subjectAltName
+// entries. Each input may carry an explicit type prefix (`DNS:`, `IP:`, `email:`,
+// `URI:`); bare values are classified as IP when parseable, otherwise DNS.
+// Counters are tracked per type to satisfy openssl's numbered key format
+// (DNS.1, DNS.2, IP.1, ...).
+func BuildSANSection(sectionName string, sans []string) (string, error) {
+	counters := map[string]int{}
+	var lines []string
+	for _, raw := range sans {
+		kind, value, err := classifySAN(raw)
+		if err != nil {
+			return "", err
+		}
+		counters[kind]++
+		lines = append(lines, fmt.Sprintf("%s.%d = %s", kind, counters[kind], value))
+	}
+	return fmt.Sprintf("[ %s ]\n%s\n", sectionName, strings.Join(lines, "\n")), nil
+}
+
+func classifySAN(s string) (string, string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", "", fmt.Errorf("empty SAN entry")
+	}
+	for _, t := range []string{"DNS", "IP", "email", "URI"} {
+		prefix := strings.ToLower(t) + ":"
+		if strings.HasPrefix(strings.ToLower(s), prefix) {
+			value := strings.TrimSpace(s[len(prefix):])
+			if value == "" {
+				return "", "", fmt.Errorf("empty value for SAN %q", s)
+			}
+			if t == "IP" && net.ParseIP(value) == nil {
+				return "", "", fmt.Errorf("invalid IP address in SAN %q", s)
+			}
+			return t, value, nil
+		}
+	}
+	if net.ParseIP(s) != nil {
+		return "IP", s, nil
+	}
+	return "DNS", s, nil
 }
 
 // ListFiles lists files with a specific extension in a given path.

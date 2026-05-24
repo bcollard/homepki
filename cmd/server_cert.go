@@ -9,13 +9,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var serverName string
+var (
+	serverName string
+	serverSANs []string
+)
 
 var serverCertCmd = &cobra.Command{
 	Use:   "server-cert",
 	Short: "Generate a server TLS certificate signed by an Intermediate CA",
 	Example: `  # Generate a server certificate for 'kong-gateway'
   homepki server-cert --domain runlocal.dev --intermediate bu1 --server kong-gateway
+
+  # Add extra Subject Alternative Names (auto-detected as IP or DNS,
+  # or prefix with DNS:, IP:, email:, URI: to force a type)
+  homepki server-cert --domain runlocal.dev --intermediate bu1 --server kong-gateway \
+    --san kong.local --san 192.168.1.10 --san IP:::1 --san DNS:*.kong.local
 
   # List existing server certificates with chain verification
   homepki server-cert list --domain runlocal.dev --intermediate bu1
@@ -57,6 +65,12 @@ var serverCertCmd = &cobra.Command{
 			return err
 		}
 
+		defaultDNS := fmt.Sprintf("%s.%s.%s", serverName, intermediateCAName, rootCADomain)
+		sanSection, err := pki.BuildSANSection("server_alt_names", append([]string{defaultDNS}, serverSANs...))
+		if err != nil {
+			return err
+		}
+
 		// Generate Server config
 		serverConfContent := fmt.Sprintf(`# Include defaults
 .include %s/%s-defaults.conf
@@ -78,9 +92,7 @@ basicConstraints        = critical,CA:false
 extendedKeyUsage        = serverAuth
 subjectAltName          = critical, @server_alt_names
 
-[ server_alt_names ]
-DNS.1 = %s.%s.%s
-`, workDir, rootCALiteralName, rootCALiteralName, intermediateCAName, serverName, intermediateCAName, rootCADomain, serverName, intermediateCAName, rootCADomain)
+%s`, workDir, rootCALiteralName, rootCALiteralName, intermediateCAName, serverName, intermediateCAName, rootCADomain, sanSection)
 
 		serverConfPath := filepath.Join(serverDir, fmt.Sprintf("%s.conf", serverName))
 		if err := pki.WriteFile(serverConfPath, serverConfContent); err != nil {
@@ -184,6 +196,7 @@ func init() {
 	serverCertCmd.Flags().StringVarP(&rootCADomain, "domain", "d", "", "Root CA domain name (e.g., runlocal.dev)")
 	serverCertCmd.Flags().StringVarP(&intermediateCAName, "intermediate", "i", "", "Intermediate CA name (e.g., bu1)")
 	serverCertCmd.Flags().StringVarP(&serverName, "server", "s", "", "Server name (e.g., kong-gateway-clustering)")
+	serverCertCmd.Flags().StringArrayVar(&serverSANs, "san", nil, "Additional Subject Alternative Name (repeatable). Bare values are auto-detected as IP or DNS; prefix with DNS:, IP:, email:, or URI: to force a type")
 	serverCertCmd.MarkFlagRequired("domain")
 	serverCertCmd.MarkFlagRequired("intermediate")
 	serverCertCmd.MarkFlagRequired("server")
