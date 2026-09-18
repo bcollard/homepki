@@ -4,14 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<title>homepki – a real certificate hierarchy for local development</title>
-<meta name="description" content="A CLI that builds a three-tier PKI on your workstation: root CA, intermediate CAs, and server or client TLS certificates. Chain verification built in, ready for mTLS.">
+<title>homepki – three-tier PKI for local development</title>
+<meta name="description" content="A command line tool that creates a root CA, intermediate CAs, and server or client TLS certificates on your workstation. Verifies chains of trust and prints JSON for scripts.">
 <link rel="canonical" href="https://bcollard.github.io/homepki/">
 <link rel="icon" href="mark.svg" type="image/svg+xml">
 
 <meta property="og:type" content="website">
-<meta property="og:title" content="homepki – a real certificate hierarchy for local development">
-<meta property="og:description" content="Root CA, intermediate CAs and server/client leaves in one command each. Chains are verified in-process, extended key usage included, with JSON output for scripts.">
+<meta property="og:title" content="homepki – three-tier PKI for local development">
+<meta property="og:description" content="Root CA, intermediate CAs, and server or client leaves, one command per tier. Chains are verified in-process, extended key usage included, with JSON output for scripts.">
 <meta property="og:url" content="https://bcollard.github.io/homepki/">
 <meta name="twitter:card" content="summary">
 
@@ -24,7 +24,7 @@
   "operatingSystem": "macOS, Linux",
   "url": "https://bcollard.github.io/homepki/",
   "downloadUrl": "https://github.com/bcollard/homepki/releases/latest",
-  "description": "A command line tool that builds and maintains a three-tier PKI for local development: a self-signed root CA, intermediate CAs beneath it, and server or client TLS certificates under each intermediate. Chains of trust are verified in-process with Go's crypto/x509.",
+  "description": "A command line tool for local development PKI. It creates a self-signed root CA, intermediate CAs under it, and server or client TLS certificates under each intermediate. Chains of trust are verified in-process with Go's crypto/x509.",
   "license": "https://opensource.org/licenses/MIT",
   "codeRepository": "https://github.com/bcollard/homepki",
   "featureList": [
@@ -34,7 +34,7 @@
     "Chain of trust verification including extended key usage",
     "JSON output for scripting",
     "Subject Alternative Names with automatic IP and DNS classification",
-    "Ships an Agent Skill for AI coding tools"
+    "Includes an Agent Skill for AI coding tools"
   ],
   "isAccessibleForFree": true,
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
@@ -68,7 +68,7 @@
       "name": "How is homepki different from mkcert?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "mkcert installs its own root into the OS and browser trust stores, so localhost just works with no warning. homepki does not touch trust stores; it gives you a real three-tier hierarchy with intermediates and separate client certificates, which is what you need for mTLS or for handing a service a CA bundle."
+        "text": "mkcert installs its own root into the OS and browser trust stores, so localhost loads without a warning. homepki does not modify trust stores. It creates a three-tier hierarchy with intermediates and separate client certificates, for mTLS or for giving a service a CA bundle."
       }
     },
     {
@@ -76,7 +76,7 @@
       "name": "Is it safe to re-run a generate command?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "No. Re-running root-ca or intermediate-ca generates a new key and resets that CA's database, which orphans every certificate beneath it, and it reports success while doing so. Build in a fresh working directory, or guard the command by testing for the certificate file first."
+        "text": "No. Re-running root-ca or intermediate-ca generates a new key and resets that CA's database. Every certificate below it stops verifying, and the command still reports success. Use a fresh working directory, or test for the certificate file before running the command."
       }
     }
   ]
@@ -273,7 +273,7 @@
   <div class="wrap">
     <img class="mark" src="mark.svg" alt="">
     <h1>homepki</h1>
-    <p class="tagline">A real certificate hierarchy for local development — root CA, intermediates, and server or client leaves, one command each.</p>
+    <p class="tagline">Creates a root CA, intermediate CAs, and server or client TLS certificates on your workstation. One command per tier.</p>
     <div class="cta">
       <a class="btn btn-primary" href="#install">Install</a>
       <a class="btn btn-ghost" href="https://github.com/bcollard/homepki">GitHub</a>
@@ -285,7 +285,7 @@
 <section>
   <div class="wrap">
     <h2>Three tiers, one command each</h2>
-    <p class="lede">Most local TLS setups stop at a self-signed certificate, which falls apart the moment something wants to verify a chain. homepki builds the whole hierarchy and keeps the openssl configs, key material and CA databases straight for you.</p>
+    <p class="lede">A self-signed certificate works until something needs to verify a chain of trust. homepki creates all three tiers and writes the openssl configs, keys and CA databases for you.</p>
 
     <div class="tiers">
       <div class="tier"><b>Root CA</b><code>homepki root-ca -d runlocal.dev</code></div>
@@ -294,14 +294,14 @@
       <div class="tier"><b>Client leaf</b><code>homepki client-cert -d runlocal.dev -i bu1 -c my-client</code></div>
     </div>
 
-    <p style="margin-top:1.75rem">Each command is synchronous: the files are on disk and usable the moment it returns. Run several intermediates under one root to separate tenants or environments — that is the intended model, and it means one intermediate's leaves are independent of the next.</p>
+    <p style="margin-top:1.75rem">Each command is synchronous: the files are on disk and usable when it returns. Run several intermediates under one root to separate tenants or environments. Leaves under one intermediate are independent of leaves under another.</p>
   </div>
 </section>
 
 <section class="alt">
   <div class="wrap">
-    <h2>It verifies its own chains</h2>
-    <p class="lede">Every tier has a <code>list</code> that reports expiry, days remaining, and whether the certificate actually chains to its issuer. Verification runs in-process with Go's <code>crypto/x509</code> — no <code>openssl verify</code> subprocess to parse.</p>
+    <h2>Chain verification</h2>
+    <p class="lede">Every tier has a <code>list</code> subcommand that reports expiry, days remaining, and whether the certificate chains to its issuer. Verification runs in-process with Go's <code>crypto/x509</code>, so there is no <code>openssl verify</code> output to parse.</p>
 
 <pre class="wide"><code>$ homepki server-cert list -d runlocal.dev -i bu1
 Server Certificates for runlocal.dev/bu1:
@@ -310,12 +310,12 @@ Server Certificates for runlocal.dev/bu1:
   kong-gateway.crt  2027-09-18  364        <span class="ok">✓ OK</span>
   stale.crt         2027-04-02  195        <span class="no">✗ INVALID: x509: certificate signed by unknown authority</span></code></pre>
 
-    <p>Extended key usage is checked too, so a <code>clientAuth</code> certificate will not quietly pass as a server certificate:</p>
+    <p>Extended key usage is checked as well, so a <code>clientAuth</code> certificate does not pass as a server certificate:</p>
 
 <pre class="wide"><code>  cli1.crt          2027-09-18  364        <span class="no">✗ INVALID: x509: certificate specifies an incompatible key usage</span></code></pre>
 
     <h3>JSON for scripts</h3>
-    <p>The table is coloured and its columns float with content. Pass <code>-o json</code> when a script needs to make a decision:</p>
+    <p>The table uses colour and its column widths depend on the content. Use <code>-o json</code> in scripts:</p>
 
 <pre><code>homepki server-cert list -d runlocal.dev -i bu1 -o json \
   | jq -e 'all(.[]; .chain_valid)' &gt;/dev/null || echo "broken chain!"</code></pre>
@@ -324,16 +324,16 @@ Server Certificates for runlocal.dev/bu1:
 
 <section>
   <div class="wrap">
-    <h2>Built for mTLS</h2>
-    <p class="lede">Server and client leaves are separate commands with the right extended key usage on each, and the intermediate ships a chain file you can hand to the other side as a trust store.</p>
+    <h2>Client and server certificates for mTLS</h2>
+    <p class="lede">Server and client leaves are separate commands, each with the matching extended key usage. The intermediate also gets a chain file to use as a trust store.</p>
 
 <pre><code>ROOT=~/.homepki/runlocal-dev
 
-$ROOT/bu1/bu1-intermediate-ca-chain.crt   <span class="c"># intermediate + root — the CA bundle</span>
+$ROOT/bu1/bu1-intermediate-ca-chain.crt   <span class="c"># intermediate + root, the CA bundle</span>
 $ROOT/bu1/server-tls/kong-gateway.crt     <span class="c"># serverAuth leaf + .key</span>
 $ROOT/bu1/client-tls/my-client.crt        <span class="c"># clientAuth leaf + .key</span></code></pre>
 
-    <p>Keys are written unencrypted, so nothing prompts for a passphrase and the files load directly into a server config or a Kubernetes secret:</p>
+    <p>Keys are written unencrypted, so no command prompts for a passphrase and the files load directly into a server config or a Kubernetes secret:</p>
 
 <pre><code>kubectl create secret tls kong-gateway-tls \
   --cert=$ROOT/bu1/server-tls/kong-gateway.crt \
@@ -343,15 +343,15 @@ kubectl create secret generic kong-ca \
   --from-file=ca.crt=$ROOT/bu1/bu1-intermediate-ca-chain.crt</code></pre>
 
     <div class="callout">
-      <p>Key files are mode <code>0600</code> and CA <code>private/</code> directories <code>0700</code>, but the keys themselves are not encrypted. Treat the working directory as sensitive and keep it out of version control.</p>
+      <p>Key files are mode <code>0600</code> and CA <code>private/</code> directories <code>0700</code>. The keys themselves are not encrypted, so treat the working directory as sensitive and keep it out of version control.</p>
     </div>
   </div>
 </section>
 
 <section class="alt">
   <div class="wrap">
-    <h2>Subject Alternative Names without the config dance</h2>
-    <p class="lede">The leaf's common name is always included as the first DNS SAN. Add more with a repeatable <code>--san</code>; bare values are classified automatically, and a prefix forces the type.</p>
+    <h2>Subject Alternative Names</h2>
+    <p class="lede">The leaf's common name is always the first DNS SAN. Add more with a repeatable <code>--san</code>. Bare values are classified automatically, and a prefix sets the type explicitly.</p>
 
 <pre><code>homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway \
   --san kong.local \
@@ -363,57 +363,57 @@ kubectl create secret generic kong-ca \
     DNS:kong-gateway.bu1.runlocal.dev, DNS:kong.local,
     IP Address:192.168.1.10, DNS:*.kong.local, IP Address:0:0:0:0:0:0:0:1</code></pre>
 
-    <p>Anything parseable as an address becomes an <code>IP</code>, everything else a <code>DNS</code> entry. <code>DNS:</code>, <code>IP:</code>, <code>email:</code> and <code>URI:</code> prefixes override that, and an invalid address after <code>IP:</code> is rejected rather than silently treated as a hostname.</p>
+    <p>Anything that parses as an address becomes an <code>IP</code> entry, everything else <code>DNS</code>. The <code>DNS:</code>, <code>IP:</code>, <code>email:</code> and <code>URI:</code> prefixes override that. An invalid address after <code>IP:</code> is rejected instead of being treated as a hostname.</p>
 
     <div class="callout">
-      <p>Quote any SAN containing <code>*</code>. An unquoted <code>--san DNS:*.kong.local</code> is glob-expanded by the shell before homepki ever sees it, and zsh fails the whole command with <code>no matches found</code>.</p>
+      <p>Quote any SAN containing <code>*</code>. An unquoted <code>--san DNS:*.kong.local</code> is expanded by the shell before homepki receives it, and zsh fails the command with <code>no matches found</code>.</p>
     </div>
   </div>
 </section>
 
 <section>
   <div class="wrap">
-    <h2>Your coding agent already knows how to drive it</h2>
-    <p class="lede">homepki ships an <a href="https://code.claude.com/docs/en/skills">Agent Skill</a> compiled into the binary. Install it once and AI coding tools stop guessing at flags — and stop walking into the sharp edges below.</p>
+    <h2>Agent Skill for AI coding tools</h2>
+    <p class="lede">homepki includes an <a href="https://code.claude.com/docs/en/skills">Agent Skill</a> compiled into the binary. Install it once so AI coding tools have the flags, the usage patterns, and the failure modes described below.</p>
 
 <pre><code>homepki skill install          <span class="c"># → ~/.claude/skills/homepki/SKILL.md</span>
 homepki skill path             <span class="c"># print the install path</span>
 homepki skill install --print  <span class="c"># emit it to stdout, pipe it anywhere</span></code></pre>
 
-    <p>The skill documents the recipe patterns, the JSON output, the teardown story, and the failure modes that are not visible in <code>--help</code>. No download needed; start a new agent session to pick it up.</p>
+    <p>The skill covers the usage patterns, the JSON output, how to remove a PKI, and the failure modes that <code>--help</code> does not show. Nothing is downloaded. Start a new agent session to load it.</p>
   </div>
 </section>
 
 <section class="alt">
   <div class="wrap">
-    <h2>Questions worth answering up front</h2>
+    <h2>Common questions</h2>
 
     <dl class="faq">
       <dt>Can I use this for production certificates?</dt>
-      <dd>No. Keys are unencrypted, validity periods are fixed at 2190 days for CAs and 365 for leaves, and there is no revocation or renewal. This is a local-development CA. Use ACME/Let's Encrypt or your organisation's PKI for anything public-facing.</dd>
+      <dd>No. Keys are unencrypted, validity periods are fixed at 2190 days for CAs and 365 days for leaves, and there is no revocation or renewal. This is a local-development CA. Use ACME/Let's Encrypt or your organisation's PKI for anything public-facing.</dd>
 
       <dt>Every command fails with a config error about a missing equal sign. Why?</dt>
       <dd>
-        You are on macOS's bundled LibreSSL, which does not support the <code>.include</code> directive homepki writes into its generated configs. The error never mentions LibreSSL, which makes it a confusing first run.
+        You are running macOS's bundled LibreSSL, which does not support the <code>.include</code> directive homepki writes into its generated configs. The error message does not mention LibreSSL.
         <pre><code>openssl version          <span class="c"># must say OpenSSL 3.x, not LibreSSL</span>
 brew install openssl@3
 export PATH="$(brew --prefix openssl@3)/bin:$PATH"</code></pre>
       </dd>
 
       <dt>Is it safe to re-run a generate command?</dt>
-      <dd>No — and this is the sharpest edge. Re-running <code>root-ca</code> or <code>intermediate-ca</code> generates a fresh key and resets that CA's database, orphaning every certificate beneath it, while still reporting success. The tier you touched keeps showing <code>✓ OK</code>; only the tier <em>below</em> flips to invalid. Build in a fresh working directory, or guard the command by testing for the certificate file first.</dd>
+      <dd>No. Re-running <code>root-ca</code> or <code>intermediate-ca</code> generates a new key and resets that CA's database. Every certificate below it stops verifying, and the command still reports success. The tier you re-ran keeps showing <code>✓ OK</code>; only the tier <em>below</em> it becomes invalid. Use a fresh working directory, or test for the certificate file before running the command.</dd>
 
       <dt>How do I re-issue a leaf under the same name?</dt>
-      <dd>The intermediate's database allows one certificate per subject, so a same-name re-issue fails — after the new private key has already overwritten the old one, leaving a mismatched pair that chain verification cannot detect. Prefer a new name, or a fresh working directory. The <a href="https://github.com/bcollard/homepki/blob/main/SKILL.md">skill</a> documents the database-editing recovery path if you really need the same name back.</dd>
+      <dd>The intermediate's database allows one certificate per subject, so a same-name re-issue fails. By that point the new private key has already replaced the old one, leaving a key and certificate that do not match, which chain verification does not detect. Use a new name or a fresh working directory. The <a href="https://github.com/bcollard/homepki/blob/main/SKILL.md">skill</a> documents how to edit the database if you need the same name.</dd>
 
       <dt>How is this different from mkcert?</dt>
-      <dd>mkcert installs its root into your OS and browser trust stores, so <code>localhost</code> loads without a warning — less work if that is all you want. homepki never touches a trust store. It wins when you need the real hierarchy: intermediates, client certificates for mTLS, and a CA bundle to hand to a service.</dd>
+      <dd>mkcert installs its root into your OS and browser trust stores, so <code>localhost</code> loads without a warning. That is less setup if it is all you need. homepki does not modify trust stores. Use it when you need intermediates, client certificates for mTLS, or a CA bundle to give to a service.</dd>
 
-      <dt>Where does it put things, and how do I start over?</dt>
-      <dd>Everything lives under one directory — <code>--workdir</code>, else <code>$HOMEPKI_WORKDIR</code>, else <code>~/.homepki</code>. There is no delete command, so teardown is <code>rm -rf</code> on that directory. Point <code>HOMEPKI_WORKDIR</code> at a temporary directory for a throwaway PKI.</dd>
+      <dt>Where does it store files, and how do I start over?</dt>
+      <dd>Everything lives under one directory: <code>--workdir</code>, then <code>$HOMEPKI_WORKDIR</code>, then <code>~/.homepki</code>. There is no delete command, so removing a PKI means <code>rm -rf</code> on that directory. Point <code>HOMEPKI_WORKDIR</code> at a temporary directory for a throwaway PKI.</dd>
 
-      <dt>Does it need anything besides openssl?</dt>
-      <dd>No. It is a single static Go binary that shells out to OpenSSL for key generation and signing, and verifies chains itself. Nothing is interactive: openssl is always invoked in batch mode, so no command can block waiting on a passphrase or a DN prompt.</dd>
+      <dt>Does it need anything besides OpenSSL?</dt>
+      <dd>No. It is a single Go binary that calls OpenSSL for key generation and signing, and verifies chains itself. openssl is always invoked in batch mode, so no command waits for a passphrase or a DN prompt.</dd>
     </dl>
   </div>
 </section>
@@ -430,7 +430,7 @@ brew install --cask homepki</code></pre>
     <h3>First run</h3>
 <pre><code>openssl version | grep -q '^OpenSSL' || echo "install Homebrew OpenSSL first"
 
-export HOMEPKI_WORKDIR="$PWD/.pki"     <span class="c"># keep this PKI local and disposable</span>
+export HOMEPKI_WORKDIR="$PWD/.pki"     <span class="c"># keep this PKI in the project directory</span>
 
 homepki root-ca         -d runlocal.dev
 homepki intermediate-ca -d runlocal.dev -n bu1
@@ -438,7 +438,7 @@ homepki server-cert     -d runlocal.dev -i bu1 -s kong-gateway --san kong.local
 
 homepki server-cert list -d runlocal.dev -i bu1</code></pre>
 
-    <p class="note">Generate commands are verbose — they echo each openssl invocation and the full signed certificate. Redirect to <code>/dev/null</code> in scripts and confirm with <code>list -o json</code>.</p>
+    <p class="note">Generate commands are verbose: they echo each openssl invocation and the full signed certificate. Redirect to <code>/dev/null</code> in scripts and check the result with <code>list -o json</code>.</p>
   </div>
 </section>
 
