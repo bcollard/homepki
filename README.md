@@ -41,6 +41,19 @@ Override the default storage location using:
   homepki root-ca --domain runlocal.dev
   ```
 
+## Agent Skill (AI coding tools)
+
+homepki ships an [Agent Skill](https://code.claude.com/docs/en/skills) that teaches AI coding tools how to drive homepki — issuing TLS and mTLS material for scripts, demos, and tests. Install it once and every future agent session knows how to use homepki without you explaining it each time:
+
+```bash
+homepki skill install          # → ~/.claude/skills/homepki/SKILL.md
+homepki skill install --force  # overwrite an existing copy (e.g. after upgrading homepki)
+homepki skill path             # print the install path
+homepki skill install --print  # emit the skill to stdout (pipe it anywhere)
+```
+
+The skill is embedded in the binary, so no download is needed. Start a new agent session after installing to pick it up.
+
 ## Overview
 
 `homepki` implements a three-tier PKI structure:
@@ -59,13 +72,16 @@ go build -o homepki
 ```
 .
 ├── main.go                         # Entry point
+├── skill.go                        # Embeds SKILL.md into the binary
+├── SKILL.md                        # Agent Skill definition (single source of truth)
 ├── go.mod
 ├── cmd/
 │   ├── root.go                     # CLI setup, --workdir flag
 │   ├── root_ca.go                  # root-ca command (generate + list)
 │   ├── intermediate_ca.go          # intermediate-ca command (generate + list)
 │   ├── server_cert.go              # server-cert command (generate + list)
-│   └── client_cert.go              # client-cert command (generate + list)
+│   ├── client_cert.go              # client-cert command (generate + list)
+│   └── skill.go                    # skill install + path
 └── pkg/
     └── pki/
         └── pki.go                  # PKI helpers (OpenSSL wrappers, cert parsing)

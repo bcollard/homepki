@@ -12,15 +12,24 @@ Version metadata is injected at build time via goreleaser (`-ldflags`). During d
 ## Project Layout
 
 ```
-main.go                    # Entry point; passes version vars to cmd package
+main.go                    # Entry point; passes version vars + embedded skill to cmd package
+skill.go                   # //go:embed SKILL.md -> skillMD (package main)
+SKILL.md                   # Agent Skill definition; single source of truth
 cmd/
   root.go                  # rootCmd, --workdir flag, getEffectiveWorkDir()
   root_ca.go               # root-ca generate + list
   intermediate_ca.go       # intermediate-ca generate + list
   server_cert.go           # server-cert generate + list
   client_cert.go           # client-cert generate + list
+  skill.go                 # skill install + path; SetSkill() injection point
 pkg/pki/pki.go             # All PKI helpers (no cobra dependencies)
 ```
+
+## Agent Skill
+
+`SKILL.md` at the repo root is the canonical Agent Skill and is compiled into the binary. Because the repo root is `package main`, the embed lives in `skill.go` (package main) and is handed to the `cmd` package via `cmd.SetSkill()` — the same injection pattern as `cmd.SetVersion()`. `homepki skill install` writes it to `~/.claude/skills/homepki/SKILL.md`.
+
+Edit `SKILL.md` only; never edit an installed copy. After changing CLI flags or behaviour, check whether `SKILL.md` needs the same update.
 
 Legacy `openssl/` and `step/` directories at the repo root are historical artefacts from before the CLI rewrite — do not touch them.
 

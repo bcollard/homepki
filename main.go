@@ -11,5 +11,6 @@ var (
 
 func main() {
 	cmd.SetVersion(version, commit, date)
+	cmd.SetSkill(skillMD)
 	cmd.Execute()
 }

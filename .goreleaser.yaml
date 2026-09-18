@@ -29,6 +29,7 @@ archives:
     files:
       - LICENSE
       - README.md
+      - SKILL.md
       - src: .third_party_licenses/**/*
         dst: third_party_licenses
         strip_parent: true
