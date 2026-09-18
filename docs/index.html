@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>homepki – a real certificate hierarchy for local development</title>
+<meta name="description" content="A CLI that builds a three-tier PKI on your workstation: root CA, intermediate CAs, and server or client TLS certificates. Chain verification built in, ready for mTLS.">
+<link rel="canonical" href="https://bcollard.github.io/homepki/">
+<link rel="icon" href="mark.svg" type="image/svg+xml">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="homepki – a real certificate hierarchy for local development">
+<meta property="og:description" content="Root CA, intermediate CAs and server/client leaves in one command each. Chains are verified in-process, extended key usage included, with JSON output for scripts.">
+<meta property="og:url" content="https://bcollard.github.io/homepki/">
+<meta name="twitter:card" content="summary">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "homepki",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "macOS, Linux",
+  "url": "https://bcollard.github.io/homepki/",
+  "downloadUrl": "https://github.com/bcollard/homepki/releases/latest",
+  "description": "A command line tool that builds and maintains a three-tier PKI for local development: a self-signed root CA, intermediate CAs beneath it, and server or client TLS certificates under each intermediate. Chains of trust are verified in-process with Go's crypto/x509.",
+  "license": "https://opensource.org/licenses/MIT",
+  "codeRepository": "https://github.com/bcollard/homepki",
+  "featureList": [
+    "Self-signed root CA per domain",
+    "Multiple intermediate CAs for tenant or environment separation",
+    "serverAuth and clientAuth leaf certificates for mTLS",
+    "Chain of trust verification including extended key usage",
+    "JSON output for scripting",
+    "Subject Alternative Names with automatic IP and DNS classification",
+    "Ships an Agent Skill for AI coding tools"
+  ],
+  "isAccessibleForFree": true,
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": { "@type": "Person", "name": "Baptiste Collard", "url": "https://github.com/bcollard" }
+}
+</script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Can I use homepki for production certificates?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. Private keys are written unencrypted, validity periods are fixed, and there is no revocation. homepki is for local development, demos and tests. Use ACME/Let's Encrypt or your organisation's PKI for anything public-facing."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Why does every command fail with a 'missing equal sign' config error?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "You are running macOS's bundled LibreSSL, which does not support the .include directive homepki writes into its generated openssl configs. Install Homebrew's OpenSSL 3 and put it ahead of /usr/bin/openssl in PATH. Check with: openssl version."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How is homepki different from mkcert?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "mkcert installs its own root into the OS and browser trust stores, so localhost just works with no warning. homepki does not touch trust stores; it gives you a real three-tier hierarchy with intermediates and separate client certificates, which is what you need for mTLS or for handing a service a CA bundle."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is it safe to re-run a generate command?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. Re-running root-ca or intermediate-ca generates a new key and resets that CA's database, which orphans every certificate beneath it, and it reports success while doing so. Build in a fresh working directory, or guard the command by testing for the certificate file first."
+      }
+    }
+  ]
+}
+</script>
+
+<style>
+  :root {
+    --accent:   #0f6f5c;
+    --accent-d: #0a5346;
+    --ink:      #14171a;
+    --muted:    #56605e;
+    --line:     #dde5e2;
+    --bg:       #f6faf8;
+    --bg-alt:   #ffffff;
+    --code-bg:  rgba(20, 23, 26, .06);
+    --warn:     #b4470e;
+    --good:     #0b6e3f;
+    --bad:      #b42318;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --accent:   #3fbf9f;
+      --accent-d: #6fd4bb;
+      --ink:      #edf2f0;
+      --muted:    #94a29e;
+      --line:     #2a3633;
+      --bg:       #0f1513;
+      --bg-alt:   #161e1c;
+      --code-bg:  rgba(237, 242, 240, .09);
+      --warn:     #e8863f;
+      --good:     #4ade80;
+      --bad:      #f87171;
+    }
+  }
+
+  * { box-sizing: border-box }
+
+  body {
+    margin: 0;
+    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, "Noto Sans", sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 62rem; margin: 0 auto; padding: 0 1.25rem }
+
+  a { color: var(--accent); text-underline-offset: 2px }
+  a:hover { color: var(--accent-d) }
+
+  code, pre {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  code {
+    font-size: .875em;
+    background: var(--code-bg);
+    padding: .15em .4em;
+    border-radius: 4px;
+  }
+  pre {
+    background: var(--code-bg);
+    border-radius: 8px;
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    font-size: .84rem;
+    line-height: 1.6;
+    border: 1px solid var(--line);
+    max-width: 46rem;
+  }
+  pre code { background: none; padding: 0; font-size: inherit }
+  pre.wide { max-width: none }
+  .c { color: var(--muted) }
+  .ok { color: var(--good) }
+  .no { color: var(--bad) }
+
+  /* ---- hero ---- */
+  .hero {
+    text-align: center;
+    padding: 4.5rem 0 3.5rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .hero img.mark { width: 76px; height: 76px }
+  .hero h1 {
+    font-size: clamp(2.1rem, 5vw, 3rem);
+    margin: 1.1rem 0 .5rem;
+    letter-spacing: -.02em;
+  }
+  .tagline {
+    font-size: clamp(1.05rem, 2.2vw, 1.3rem);
+    color: var(--muted);
+    max-width: 36rem;
+    margin: 0 auto 2rem;
+  }
+  .cta { display: flex; gap: .75rem; justify-content: center; flex-wrap: wrap }
+  .btn {
+    display: inline-block;
+    padding: .7rem 1.35rem;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: .95rem;
+    text-decoration: none;
+    border: 1px solid var(--accent);
+  }
+  .btn-primary { background: var(--accent); color: #fff }
+  .btn-primary:hover { background: var(--accent-d); border-color: var(--accent-d); color: #fff }
+  .btn-ghost { color: var(--accent); background: transparent }
+  .note { font-size: .85rem; color: var(--muted); margin-top: 1rem }
+
+  /* The dark accent is a light mint, so white label text on it only reaches
+     2.3:1. Use the page ink instead, which clears AA comfortably. */
+  @media (prefers-color-scheme: dark) {
+    .btn-primary, .btn-primary:hover { color: #0f1513 }
+  }
+
+  /* ---- sections ---- */
+  section { padding: 3.25rem 0; border-bottom: 1px solid var(--line) }
+  section.alt { background: var(--bg-alt) }
+  h2 { font-size: 1.55rem; margin: 0 0 .5rem; letter-spacing: -.01em }
+  h3 { font-size: 1.05rem; margin: 1.75rem 0 .35rem }
+  .lede { color: var(--muted); margin: 0 0 1.75rem; max-width: 46rem }
+  p { max-width: 46rem }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 1.5rem 2rem;
+    margin-top: 1.5rem;
+  }
+  .grid h3 { margin-top: 0 }
+  .grid p { margin: 0; font-size: .93rem; color: var(--muted) }
+
+  ul.plain { list-style: none; padding: 0; max-width: 46rem }
+  ul.plain li { padding: .45rem 0 .45rem 1.6rem; position: relative }
+  ul.plain li::before {
+    content: "";
+    position: absolute; left: 0; top: 1.05em;
+    width: .5rem; height: .5rem; border-radius: 50%;
+    background: var(--accent);
+  }
+
+  dl.faq { max-width: 46rem }
+  dl.faq dt { font-weight: 600; margin-top: 1.5rem }
+  dl.faq dd { margin: .35rem 0 0; color: var(--muted) }
+  dl.faq dd pre { margin: .7rem 0 0 }
+
+  .callout {
+    border-left: 3px solid var(--warn);
+    background: var(--code-bg);
+    padding: .9rem 1.1rem;
+    border-radius: 0 6px 6px 0;
+    margin: 1.5rem 0;
+    max-width: 46rem;
+  }
+  .callout p { margin: 0 }
+  .callout p + p { margin-top: .6rem }
+
+  /* minmax(0,1fr): without it the implicit track sizes to the widest
+     command and the grid item overflows the page on a phone */
+  .tiers { display: grid; grid-template-columns: minmax(0, 1fr); gap: .5rem; margin: 1.5rem 0 0; max-width: 46rem }
+  .tier {
+    display: flex; gap: .9rem; align-items: baseline;
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: .8rem 1rem; background: var(--bg-alt);
+  }
+  .tier b { font-size: .8rem; color: var(--muted); font-weight: 600; flex: 0 0 auto; min-width: 5.5rem }
+  /* the command can be wider than a phone: let it scroll inside the row
+     rather than pushing the page into a horizontal scroll */
+  .tier code {
+    background: none; padding: 0; font-size: .84rem;
+    flex: 1 1 auto; min-width: 0; overflow-x: auto; white-space: pre;
+  }
+
+  @media (max-width: 34rem) {
+    /* stretch, not baseline: a baseline-aligned column item keeps its
+       intrinsic width and drags the whole page into a horizontal scroll */
+    .tier { flex-direction: column; align-items: stretch; gap: .3rem }
+    .tier b { min-width: 0 }
+  }
+
+  footer {
+    padding: 2.5rem 0 3.5rem;
+    font-size: .9rem;
+    color: var(--muted);
+    text-align: center;
+  }
+  footer a { color: var(--muted) }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <img class="mark" src="mark.svg" alt="">
+    <h1>homepki</h1>
+    <p class="tagline">A real certificate hierarchy for local development — root CA, intermediates, and server or client leaves, one command each.</p>
+    <div class="cta">
+      <a class="btn btn-primary" href="#install">Install</a>
+      <a class="btn btn-ghost" href="https://github.com/bcollard/homepki">GitHub</a>
+    </div>
+    <p class="note">Free and MIT licensed. macOS and Linux.</p>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2>Three tiers, one command each</h2>
+    <p class="lede">Most local TLS setups stop at a self-signed certificate, which falls apart the moment something wants to verify a chain. homepki builds the whole hierarchy and keeps the openssl configs, key material and CA databases straight for you.</p>
+
+    <div class="tiers">
+      <div class="tier"><b>Root CA</b><code>homepki root-ca -d runlocal.dev</code></div>
+      <div class="tier"><b>Intermediate</b><code>homepki intermediate-ca -d runlocal.dev -n bu1</code></div>
+      <div class="tier"><b>Server leaf</b><code>homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway</code></div>
+      <div class="tier"><b>Client leaf</b><code>homepki client-cert -d runlocal.dev -i bu1 -c my-client</code></div>
+    </div>
+
+    <p style="margin-top:1.75rem">Each command is synchronous: the files are on disk and usable the moment it returns. Run several intermediates under one root to separate tenants or environments — that is the intended model, and it means one intermediate's leaves are independent of the next.</p>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <h2>It verifies its own chains</h2>
+    <p class="lede">Every tier has a <code>list</code> that reports expiry, days remaining, and whether the certificate actually chains to its issuer. Verification runs in-process with Go's <code>crypto/x509</code> — no <code>openssl verify</code> subprocess to parse.</p>
+
+<pre class="wide"><code>$ homepki server-cert list -d runlocal.dev -i bu1
+Server Certificates for runlocal.dev/bu1:
+  NAME              EXPIRES     DAYS LEFT  CHAIN
+  ────────────────  ──────────  ─────────  ──────────
+  kong-gateway.crt  2027-09-18  364        <span class="ok">✓ OK</span>
+  stale.crt         2027-04-02  195        <span class="no">✗ INVALID: x509: certificate signed by unknown authority</span></code></pre>
+
+    <p>Extended key usage is checked too, so a <code>clientAuth</code> certificate will not quietly pass as a server certificate:</p>
+
+<pre class="wide"><code>  cli1.crt          2027-09-18  364        <span class="no">✗ INVALID: x509: certificate specifies an incompatible key usage</span></code></pre>
+
+    <h3>JSON for scripts</h3>
+    <p>The table is coloured and its columns float with content. Pass <code>-o json</code> when a script needs to make a decision:</p>
+
+<pre><code>homepki server-cert list -d runlocal.dev -i bu1 -o json \
+  | jq -e 'all(.[]; .chain_valid)' &gt;/dev/null || echo "broken chain!"</code></pre>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Built for mTLS</h2>
+    <p class="lede">Server and client leaves are separate commands with the right extended key usage on each, and the intermediate ships a chain file you can hand to the other side as a trust store.</p>
+
+<pre><code>ROOT=~/.homepki/runlocal-dev
+
+$ROOT/bu1/bu1-intermediate-ca-chain.crt   <span class="c"># intermediate + root — the CA bundle</span>
+$ROOT/bu1/server-tls/kong-gateway.crt     <span class="c"># serverAuth leaf + .key</span>
+$ROOT/bu1/client-tls/my-client.crt        <span class="c"># clientAuth leaf + .key</span></code></pre>
+
+    <p>Keys are written unencrypted, so nothing prompts for a passphrase and the files load directly into a server config or a Kubernetes secret:</p>
+
+<pre><code>kubectl create secret tls kong-gateway-tls \
+  --cert=$ROOT/bu1/server-tls/kong-gateway.crt \
+  --key=$ROOT/bu1/server-tls/kong-gateway.key
+
+kubectl create secret generic kong-ca \
+  --from-file=ca.crt=$ROOT/bu1/bu1-intermediate-ca-chain.crt</code></pre>
+
+    <div class="callout">
+      <p>Key files are mode <code>0600</code> and CA <code>private/</code> directories <code>0700</code>, but the keys themselves are not encrypted. Treat the working directory as sensitive and keep it out of version control.</p>
+    </div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <h2>Subject Alternative Names without the config dance</h2>
+    <p class="lede">The leaf's common name is always included as the first DNS SAN. Add more with a repeatable <code>--san</code>; bare values are classified automatically, and a prefix forces the type.</p>
+
+<pre><code>homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway \
+  --san kong.local \
+  --san 192.168.1.10 \
+  --san 'DNS:*.kong.local' \
+  --san IP:::1</code></pre>
+
+<pre><code>X509v3 Subject Alternative Name: critical
+    DNS:kong-gateway.bu1.runlocal.dev, DNS:kong.local,
+    IP Address:192.168.1.10, DNS:*.kong.local, IP Address:0:0:0:0:0:0:0:1</code></pre>
+
+    <p>Anything parseable as an address becomes an <code>IP</code>, everything else a <code>DNS</code> entry. <code>DNS:</code>, <code>IP:</code>, <code>email:</code> and <code>URI:</code> prefixes override that, and an invalid address after <code>IP:</code> is rejected rather than silently treated as a hostname.</p>
+
+    <div class="callout">
+      <p>Quote any SAN containing <code>*</code>. An unquoted <code>--san DNS:*.kong.local</code> is glob-expanded by the shell before homepki ever sees it, and zsh fails the whole command with <code>no matches found</code>.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Your coding agent already knows how to drive it</h2>
+    <p class="lede">homepki ships an <a href="https://code.claude.com/docs/en/skills">Agent Skill</a> compiled into the binary. Install it once and AI coding tools stop guessing at flags — and stop walking into the sharp edges below.</p>
+
+<pre><code>homepki skill install          <span class="c"># → ~/.claude/skills/homepki/SKILL.md</span>
+homepki skill path             <span class="c"># print the install path</span>
+homepki skill install --print  <span class="c"># emit it to stdout, pipe it anywhere</span></code></pre>
+
+    <p>The skill documents the recipe patterns, the JSON output, the teardown story, and the failure modes that are not visible in <code>--help</code>. No download needed; start a new agent session to pick it up.</p>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <h2>Questions worth answering up front</h2>
+
+    <dl class="faq">
+      <dt>Can I use this for production certificates?</dt>
+      <dd>No. Keys are unencrypted, validity periods are fixed at 2190 days for CAs and 365 for leaves, and there is no revocation or renewal. This is a local-development CA. Use ACME/Let's Encrypt or your organisation's PKI for anything public-facing.</dd>
+
+      <dt>Every command fails with a config error about a missing equal sign. Why?</dt>
+      <dd>
+        You are on macOS's bundled LibreSSL, which does not support the <code>.include</code> directive homepki writes into its generated configs. The error never mentions LibreSSL, which makes it a confusing first run.
+        <pre><code>openssl version          <span class="c"># must say OpenSSL 3.x, not LibreSSL</span>
+brew install openssl@3
+export PATH="$(brew --prefix openssl@3)/bin:$PATH"</code></pre>
+      </dd>
+
+      <dt>Is it safe to re-run a generate command?</dt>
+      <dd>No — and this is the sharpest edge. Re-running <code>root-ca</code> or <code>intermediate-ca</code> generates a fresh key and resets that CA's database, orphaning every certificate beneath it, while still reporting success. The tier you touched keeps showing <code>✓ OK</code>; only the tier <em>below</em> flips to invalid. Build in a fresh working directory, or guard the command by testing for the certificate file first.</dd>
+
+      <dt>How do I re-issue a leaf under the same name?</dt>
+      <dd>The intermediate's database allows one certificate per subject, so a same-name re-issue fails — after the new private key has already overwritten the old one, leaving a mismatched pair that chain verification cannot detect. Prefer a new name, or a fresh working directory. The <a href="https://github.com/bcollard/homepki/blob/main/SKILL.md">skill</a> documents the database-editing recovery path if you really need the same name back.</dd>
+
+      <dt>How is this different from mkcert?</dt>
+      <dd>mkcert installs its root into your OS and browser trust stores, so <code>localhost</code> loads without a warning — less work if that is all you want. homepki never touches a trust store. It wins when you need the real hierarchy: intermediates, client certificates for mTLS, and a CA bundle to hand to a service.</dd>
+
+      <dt>Where does it put things, and how do I start over?</dt>
+      <dd>Everything lives under one directory — <code>--workdir</code>, else <code>$HOMEPKI_WORKDIR</code>, else <code>~/.homepki</code>. There is no delete command, so teardown is <code>rm -rf</code> on that directory. Point <code>HOMEPKI_WORKDIR</code> at a temporary directory for a throwaway PKI.</dd>
+
+      <dt>Does it need anything besides openssl?</dt>
+      <dd>No. It is a single static Go binary that shells out to OpenSSL for key generation and signing, and verifies chains itself. Nothing is interactive: openssl is always invoked in batch mode, so no command can block waiting on a passphrase or a DN prompt.</dd>
+    </dl>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <h2>Install</h2>
+
+<pre><code>brew tap bcollard/homepki
+brew install --cask homepki</code></pre>
+
+    <p>Or download a binary for macOS or Linux, amd64 or arm64, from the <a href="https://github.com/bcollard/homepki/releases/latest">latest release</a>.</p>
+
+    <h3>First run</h3>
+<pre><code>openssl version | grep -q '^OpenSSL' || echo "install Homebrew OpenSSL first"
+
+export HOMEPKI_WORKDIR="$PWD/.pki"     <span class="c"># keep this PKI local and disposable</span>
+
+homepki root-ca         -d runlocal.dev
+homepki intermediate-ca -d runlocal.dev -n bu1
+homepki server-cert     -d runlocal.dev -i bu1 -s kong-gateway --san kong.local
+
+homepki server-cert list -d runlocal.dev -i bu1</code></pre>
+
+    <p class="note">Generate commands are verbose — they echo each openssl invocation and the full signed certificate. Redirect to <code>/dev/null</code> in scripts and confirm with <code>list -o json</code>.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>
+      <a href="https://github.com/bcollard/homepki">Source</a> ·
+      <a href="https://github.com/bcollard/homepki/blob/main/SKILL.md">Agent Skill</a> ·
+      <a href="https://github.com/bcollard/homepki/releases/latest">Releases</a> ·
+      <a href="https://github.com/bcollard/homepki/issues">Issues</a>
+    </p>
+    <p>MIT licensed. Built by <a href="https://github.com/bcollard">Baptiste Collard</a>.</p>
+  </div>
+</footer>
+
+</body>
+</html>

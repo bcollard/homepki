@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="homepki">
+  <rect width="64" height="64" rx="14" fill="#0f6f5c"/>
+  <!-- seal body -->
+  <circle cx="32" cy="26" r="13" fill="none" stroke="#ffffff" stroke-width="4"/>
+  <!-- check inside the seal -->
+  <path d="M25.5 26.5 L30.5 31.5 L39 22" fill="none" stroke="#ffffff" stroke-width="4"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- ribbon tails -->
+  <path d="M25 38 L21 55 L29 50 L32 57 L36 50 L44 55 L40 38" fill="#ffffff"/>
+</svg>

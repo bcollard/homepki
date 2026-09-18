@@ -2,6 +2,8 @@
 
 A simple PKI management tool for local development. Create and manage three-tier certificate authorities, intermediate CAs, and TLS certificates with a single CLI.
 
+📖 **[bcollard.github.io/homepki](https://bcollard.github.io/homepki/)**
+
 ## Install
 
 ```bash

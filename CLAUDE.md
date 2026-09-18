@@ -23,7 +23,20 @@ cmd/
   client_cert.go           # client-cert generate + list
   skill.go                 # skill install + path; SetSkill() injection point
 pkg/pki/pki.go             # All PKI helpers (no cobra dependencies)
+docs/                      # GitHub Pages site (see below)
 ```
+
+## Website
+
+`docs/` is served by GitHub Pages at https://bcollard.github.io/homepki/ (Pages source: `main` branch, `/docs` folder). It is a hand-written single-file page — `docs/index.html`, with `mark.svg`, `robots.txt`, `sitemap.xml` and `.nojekyll` alongside. No build step and no Jekyll; edit the HTML directly and push to `main` to deploy.
+
+Preview it locally before pushing — `file://` URLs do not render reliably:
+
+```bash
+python3 -m http.server 8787 --bind 127.0.0.1 --directory docs
+```
+
+Two CSS constraints are load-bearing and easy to reintroduce: `.tiers` needs `grid-template-columns: minmax(0, 1fr)` (an implicit `auto` track sizes to the widest command and overflows phones), and the dark-mode `.btn-primary` needs dark ink (white on the mint accent fails WCAG AA at 2.3:1).
 
 ## Agent Skill
 
