@@ -25,6 +25,9 @@ homepki server-cert --domain runlocal.dev --intermediate bu1 --server kong-gatew
 
 # Create client certificate
 homepki client-cert --domain runlocal.dev --intermediate bu1 --client my-client
+
+# Trust the root CA system-wide (macOS)
+homepki trust install --domain runlocal.dev
 ```
 
 Certificates and keys are stored in `~/.homepki` by default.
@@ -83,10 +86,17 @@ go build -o homepki
 │   ├── intermediate_ca.go          # intermediate-ca command (generate + list)
 │   ├── server_cert.go              # server-cert command (generate + list)
 │   ├── client_cert.go              # client-cert command (generate + list)
+│   ├── sign.go                     # sign command (external CSRs)
+│   ├── trust.go                    # trust install/uninstall/status (macOS)
+│   ├── paths.go                    # shared --force and --key-type handling
 │   └── skill.go                    # skill install + path
 └── pkg/
     └── pki/
-        └── pki.go                  # PKI helpers (OpenSSL wrappers, cert parsing)
+        ├── pki.go                  # PKI helpers (OpenSSL wrappers, cert parsing)
+        ├── keys.go                 # --key-type → openssl key generation arguments
+        ├── csr.go                  # CSR loading and subject policy checks
+        ├── db.go                   # openssl CA database (index.db) edits
+        └── trust.go                # macOS trust store commands
 ```
 
 ## Usage Guide
@@ -147,6 +157,62 @@ homepki client-cert list --domain runlocal.dev --intermediate bu1
 homepki client-cert list --domain runlocal.dev --intermediate bu1 -o json
 ```
 
+### 5. Signing an External CSR
+
+Sign a request generated elsewhere — the private key never reaches homepki:
+
+```bash
+openssl req -new -nodes -newkey rsa:2048 -keyout my-service.key -out my-service.csr \
+  -subj "/O=runlocal-dev/OU=bu1/CN=my-service.bu1.runlocal.dev" \
+  -addext "subjectAltName=DNS:my-service.bu1.runlocal.dev,DNS:my-service.local"
+
+homepki sign --domain runlocal.dev --intermediate bu1 --csr my-service.csr
+
+# As a client certificate, under a chosen name
+homepki sign --domain runlocal.dev --intermediate bu1 --csr my-client.csr \
+  --type client --name my-client
+
+# Write the certificate outside the PKI tree
+homepki sign --domain runlocal.dev --intermediate bu1 --csr my-service.csr \
+  --out ./my-service.crt
+```
+
+The request's subject must carry the root CA's organization (`O=`, dots replaced by dashes) and the intermediate's organizational unit (`OU=`). Mismatches are rejected before OpenSSL runs, with the exact `-subj` to use printed in the error. Subject Alternative Names are copied from the request.
+
+### Trusting the Root CA (macOS)
+
+Add the root CA to the macOS system keychain so Safari, Chrome, curl and anything else reading the system trust store accept certificates issued under it:
+
+```bash
+homepki trust install --domain runlocal.dev     # writes to the System keychain (sudo)
+homepki trust status                            # every root CA in the workdir
+homepki trust status --domain runlocal.dev -o json
+homepki trust uninstall --domain runlocal.dev   # drop the trust setting (sudo)
+```
+
+`install` and `uninstall` run `security` under `sudo` and may prompt for your password. `status` needs no privileges.
+
+This is macOS-only, and it covers the system keychain alone — Firefox and Java keep their own trust stores. Servers must still present the intermediate chain file, or clients cannot build the path from the leaf to the trusted root.
+
+### Key Types
+
+Every generate command takes `--key-type`: `rsa` (2048-bit, the default), `ecdsa` / `ecdsa-p256`, `ecdsa-p384`, or `ecdsa-p521`. Tiers are independent, so an ECDSA leaf under an RSA intermediate is fine.
+
+```bash
+homepki intermediate-ca --domain runlocal.dev --name bu1 --key-type ecdsa
+homepki server-cert --domain runlocal.dev --intermediate bu1 --server gw --key-type ecdsa-p384
+```
+
+### Re-issuing
+
+Generate commands refuse to overwrite existing material: a re-run exits 1, prints what is in the way, and changes nothing. `--force` replaces it.
+
+```bash
+homepki server-cert --domain runlocal.dev --intermediate bu1 --server kong-gateway --force
+```
+
+For a leaf, `--force` also drops the subject's row from the intermediate's CA database, which is what lets the same name be issued again. For a CA tier, `--force` orphans every certificate beneath it — check the tier *below* the one you replaced, since it is the only one whose chain flips to invalid.
+
 ### Listing and Chain Verification
 
 All `list` subcommands verify the certificate's chain of trust and support two output formats via `-o`/`--output`:
@@ -182,7 +248,7 @@ Example JSON output:
 
 ## Security Features
 
-- **2048-bit RSA keys** for strong encryption
+- **2048-bit RSA keys by default**, or ECDSA P-256/P-384/P-521 via `--key-type`
 - **UTF-8 encoding** for international character support
 - **Proper file permissions** (700 for private directories)
 - **Certificate database tracking** for revocation management
@@ -214,7 +280,7 @@ Example JSON output:
 
 ## Defaults
 
-- **Key size**: 2048-bit RSA
+- **Key**: 2048-bit RSA (`--key-type ecdsa` for P-256, `ecdsa-p384`, `ecdsa-p521`)
 - **Digest**: SHA-256
 - **Validity**: 365 days for leaf certs, 2190 days (~6 years) for CAs
 - **Extensions**: Proper X.509 extensions for CA and end-entity certificates

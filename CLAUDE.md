@@ -21,8 +21,15 @@ cmd/
   intermediate_ca.go       # intermediate-ca generate + list
   server_cert.go           # server-cert generate + list
   client_cert.go           # client-cert generate + list
+  sign.go                  # sign (external CSRs)
+  trust.go                 # trust install/uninstall/status (macOS only)
+  paths.go                 # shared --force / --key-type flags and helpers
   skill.go                 # skill install + path; SetSkill() injection point
 pkg/pki/pki.go             # All PKI helpers (no cobra dependencies)
+pkg/pki/keys.go            # --key-type -> openssl key generation args
+pkg/pki/csr.go             # CSR loading + subject policy validation
+pkg/pki/db.go              # index.db row removal (makes re-issue possible)
+pkg/pki/trust.go           # macOS security(1) command construction
 docs/                      # GitHub Pages site (see below)
 ```
 
@@ -76,6 +83,12 @@ Default root: `~/.homepki` (overridable via `--workdir` flag or `HOMEPKI_WORKDIR
 ```
 
 `GetRootCALiteralName(domain)` converts dots to dashes (e.g. `runlocal.dev` → `runlocal-dev`).
+
+## Overwrite Protection
+
+Generate commands refuse to overwrite existing material and exit non-zero; `--force` replaces it. For a leaf, `--force` also removes the subject's row from the intermediate's `index.db` (`pki.RemoveIndexEntry`) — without that, `openssl ca` refuses to sign a second certificate for the same subject. `cmd/paths.go` holds the shared `--force`/`--key-type` flag variables and the `replaceLeaf` helper.
+
+`rootCmd.PersistentPreRun` sets `SilenceUsage`, so runtime errors print on their own while flag errors still show usage.
 
 ## Chain Verification
 

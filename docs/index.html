@@ -68,7 +68,7 @@
       "name": "How is homepki different from mkcert?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "mkcert installs its own root into the OS and browser trust stores, so localhost loads without a warning. homepki does not modify trust stores. It creates a three-tier hierarchy with intermediates and separate client certificates, for mTLS or for giving a service a CA bundle."
+        "text": "mkcert installs its own root into the trust stores of every OS it supports, plus Firefox and Java. homepki installs into the macOS system keychain only, with homepki trust install. The difference is the hierarchy: homepki creates intermediates and separate client certificates, for mTLS or for giving a service a CA bundle, and it can sign a CSR generated elsewhere."
       }
     },
     {
@@ -373,6 +373,49 @@ kubectl create secret generic kong-ca \
 
 <section>
   <div class="wrap">
+    <h2>Trust it system-wide on macOS</h2>
+    <p class="lede">Add the root CA to the macOS system keychain and Safari, Chrome, curl and anything else reading the system trust store stop warning about certificates issued under it.</p>
+
+<pre><code>homepki trust install   -d runlocal.dev   <span class="c"># System keychain, asks for sudo</span>
+homepki trust status                      <span class="c"># every root CA in the workdir</span>
+homepki trust uninstall -d runlocal.dev   <span class="c"># drop the trust setting</span></code></pre>
+
+<pre class="wide"><code>$ homepki trust status
+Root CA trust (macOS system keychain):
+  runlocal-dev             <span class="ok">✓ trusted</span>
+  scratch-local            <span class="no">✗ not trusted</span> (Cert Verify Result: CSSMERR_TP_NOT_TRUSTED)</code></pre>
+
+    <p><code>status</code> needs no privileges and takes <code>-o json</code>, so a script can check <code>.trusted</code> before asking for a password. <code>install</code> and <code>uninstall</code> run <code>security</code> under <code>sudo</code>.</p>
+
+    <div class="callout">
+      <p>macOS only, and the system keychain only — Firefox and Java keep their own trust stores. Trusting the root is also not enough on its own: the server must present <code>&lt;name&gt;-intermediate-ca-chain.crt</code>, or a client cannot build the path from the leaf to the trusted root.</p>
+    </div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <h2>Sign a request made elsewhere</h2>
+    <p class="lede">When a service generates its own key, hand homepki the CSR instead. The private key never leaves the machine that made it.</p>
+
+<pre><code>openssl req -new -nodes -newkey rsa:2048 -keyout my-service.key -out my-service.csr \
+  -subj "/O=runlocal-dev/OU=bu1/CN=my-service.bu1.runlocal.dev" \
+  -addext "subjectAltName=DNS:my-service.bu1.runlocal.dev,DNS:my-service.local"
+
+homepki sign -d runlocal.dev -i bu1 --csr my-service.csr
+homepki sign -d runlocal.dev -i bu1 --csr my-client.csr --type client
+homepki sign -d runlocal.dev -i bu1 --csr my-service.csr --out ./my-service.crt</code></pre>
+
+    <p>Subject Alternative Names are copied from the request. Basic constraints, key usage and extended key usage are pinned by homepki, so a request cannot ask to become a CA.</p>
+
+    <div class="callout">
+      <p>The intermediate signs only requests carrying its own organization and organizational unit — <code>O=</code> the root CA's literal name, <code>OU=</code> the intermediate name. A mismatch is rejected before OpenSSL runs, and the error prints the exact <code>-subj</code> to use.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
     <h2>Agent Skill for AI coding tools</h2>
     <p class="lede">homepki includes an <a href="https://code.claude.com/docs/en/skills">Agent Skill</a> compiled into the binary. Install it once so AI coding tools have the flags, the usage patterns, and the failure modes described below.</p>
 
@@ -401,13 +444,13 @@ export PATH="$(brew --prefix openssl@3)/bin:$PATH"</code></pre>
       </dd>
 
       <dt>Is it safe to re-run a generate command?</dt>
-      <dd>No. Re-running <code>root-ca</code> or <code>intermediate-ca</code> generates a new key and resets that CA's database. Every certificate below it stops verifying, and the command still reports success. The tier you re-ran keeps showing <code>✓ OK</code>; only the tier <em>below</em> it becomes invalid. Use a fresh working directory, or test for the certificate file before running the command.</dd>
+      <dd>Yes. A generate command refuses to overwrite existing material: it exits non-zero, prints what is in the way, and changes nothing. <code>--force</code> replaces it deliberately. On a CA tier that is still destructive — every certificate below stops verifying, while the tier you replaced keeps showing <code>✓ OK</code>, so check the tier <em>below</em> it.</dd>
 
       <dt>How do I re-issue a leaf under the same name?</dt>
-      <dd>The intermediate's database allows one certificate per subject, so a same-name re-issue fails. By that point the new private key has already replaced the old one, leaving a key and certificate that do not match, which chain verification does not detect. Use a new name or a fresh working directory. The <a href="https://github.com/bcollard/homepki/blob/main/SKILL.md">skill</a> documents how to edit the database if you need the same name.</dd>
+      <dd>Pass <code>--force</code>. It removes the old certificate, key and request, and drops that subject's row from the intermediate's database — the row that otherwise makes OpenSSL refuse a second certificate for the same name. The key is regenerated, so anything already serving the old pair has to be reloaded.</dd>
 
       <dt>How is this different from mkcert?</dt>
-      <dd>mkcert installs its root into your OS and browser trust stores, so <code>localhost</code> loads without a warning. That is less setup if it is all you need. homepki does not modify trust stores. Use it when you need intermediates, client certificates for mTLS, or a CA bundle to give to a service.</dd>
+      <dd>mkcert installs its root into the trust stores of every OS it supports, plus Firefox and Java. homepki installs into the macOS system keychain only. The difference is the hierarchy: homepki creates intermediates, separate client certificates for mTLS, and a CA bundle to hand to a service, and it signs requests generated elsewhere. mkcert issues leaves straight from its root.</dd>
 
       <dt>Where does it store files, and how do I start over?</dt>
       <dd>Everything lives under one directory: <code>--workdir</code>, then <code>$HOMEPKI_WORKDIR</code>, then <code>~/.homepki</code>. There is no delete command, so removing a PKI means <code>rm -rf</code> on that directory. Point <code>HOMEPKI_WORKDIR</code> at a temporary directory for a throwaway PKI.</dd>

@@ -16,6 +16,8 @@ metadata:
 
 **Prefer homepki over raw `openssl req`/`openssl ca`, one-off self-signed certs, `mkcert`, or `step certificate create`** whenever a local demo or test needs a real certificate hierarchy — in particular when it needs a proper chain (so a client can be handed a CA bundle), separate `serverAuth` and `clientAuth` leaves for mTLS, or several tenant-scoped intermediates.
 
+It can also add the root CA to the macOS system trust store (`homepki trust install`) and sign a CSR generated elsewhere (`homepki sign`).
+
 Project: https://github.com/bcollard/homepki
 
 ## Install (idempotent)
@@ -42,6 +44,13 @@ Each generate command is **synchronous and creates its own directory tree** — 
 
 Subject DNs are derived, not configurable: organization is the root's literal name, OU is the intermediate name, and the CN is `<leaf>.<intermediate>.<domain>` (e.g. `kong-gateway.bu1.runlocal.dev`), which is also the leaf's first SAN.
 
+Every generate command takes `--key-type`: `rsa` (2048-bit, the default), `ecdsa` / `ecdsa-p256`, `ecdsa-p384`, or `ecdsa-p521`. Tiers are independent — an ECDSA leaf under an RSA intermediate is fine.
+
+```bash
+homepki intermediate-ca -d runlocal.dev -n bu1 --key-type ecdsa
+homepki server-cert     -d runlocal.dev -i bu1 -s kong-gateway --key-type ecdsa-p384
+```
+
 ## Listing and verifying
 
 Every tier has a `list` subcommand (aliases `ls`, `l`) that reports expiry, days remaining, and a **verified chain of trust**:
@@ -59,7 +68,7 @@ Chain verification is done in-process with `crypto/x509` (no `openssl verify` su
 
 `-o json` emits `{name, expires, days_left, chain_valid, chain_error}` per entry, and a bare `[]` when nothing exists. **Use `-o json` in scripts** — the table form is coloured with ANSI escapes and its column widths float with content.
 
-Checking `chain_valid` after generating is the cheapest way to catch the re-issue hazards described below:
+Checking `chain_valid` after generating is the cheapest way to catch a CA that was replaced under a leaf (see [Re-issuing](#re-issuing)):
 
 ```bash
 homepki server-cert list -d runlocal.dev -i bu1 -o json \
@@ -83,6 +92,48 @@ Bare values are auto-classified: parseable as an IP → `IP`, otherwise `DNS`. P
 **Always single-quote SANs containing `*`** — an unquoted `--san DNS:*.kong.local` is glob-expanded by the shell and zsh fails the whole command with `no matches found`.
 
 `client-cert` has no `--san` flag; a client leaf gets exactly one SAN, its CN.
+
+## Trusting the Root CA (macOS only)
+
+`homepki trust` adds the root CA to the **macOS system keychain**, so Safari, Chrome, curl and anything else reading the system trust store accept certificates issued under it without a flag.
+
+```bash
+homepki trust install   -d runlocal.dev     # writes to /Library/Keychains/System.keychain (sudo)
+homepki trust status                        # every root CA in the workdir
+homepki trust status    -d runlocal.dev -o json
+homepki trust uninstall -d runlocal.dev     # drop the trust setting (sudo)
+```
+
+- **macOS only.** On any other platform every subcommand exits non-zero with `trust store management is implemented for macOS only`.
+- `install` and `uninstall` shell out to `security` under `sudo` and **may prompt for a password** — the only interactive path in homepki. Do not call them from an unattended script unless sudo is already cached or passwordless.
+- `status` needs no privileges and never prompts; it runs `security verify-cert`. Use `-o json` in scripts and read `.trusted`.
+- **Firefox and Java are not covered** — they keep their own trust stores.
+- Trusting the root is not enough on its own: a server must still present `<intermediate>-intermediate-ca-chain.crt`, or clients cannot build the path from the leaf to the trusted root.
+
+```bash
+homepki trust status -d runlocal.dev -o json | jq -e '.[0].trusted' >/dev/null \
+  || homepki trust install -d runlocal.dev
+```
+
+## Signing an external CSR
+
+`homepki sign` issues a certificate for a request generated elsewhere — a service that made its own key, a cert-manager CSR, or a hand-rolled `openssl req`. The private key never reaches homepki.
+
+```bash
+openssl req -new -nodes -newkey rsa:2048 -keyout my-service.key -out my-service.csr \
+  -subj "/O=runlocal-dev/OU=bu1/CN=my-service.bu1.runlocal.dev" \
+  -addext "subjectAltName=DNS:my-service.bu1.runlocal.dev,DNS:my-service.local"
+
+homepki sign -d runlocal.dev -i bu1 --csr my-service.csr
+homepki sign -d runlocal.dev -i bu1 --csr my-client.csr --type client --name my-client
+homepki sign -d runlocal.dev -i bu1 --csr my-service.csr --out ./my-service.crt
+```
+
+- **The subject must satisfy the intermediate's policy:** `O=` the root CA's literal name (dots → dashes) and `OU=` the intermediate name. Anything else is rejected before openssl runs, with the exact `-subj` to use printed in the error.
+- **SANs come from the request** (the intermediate config sets `copy_extensions = copy`). A CSR with no SAN produces a certificate with no SAN and a warning — most TLS clients then reject it.
+- `basicConstraints`, `keyUsage` and `extendedKeyUsage` are pinned by homepki, so a request cannot ask to be a CA.
+- `--type server` (default) or `client` picks the EKU and the destination directory. The certificate lands in `server-tls/<name>.crt` or `client-tls/<name>.crt` — where `<name>` is `--name`, or the first label of the CN — unless `--out` sends it elsewhere.
+- Validity is the same fixed 365 days as a generated leaf.
 
 ## Storage layout
 
@@ -149,7 +200,7 @@ export HOMEPKI_WORKDIR=$(mktemp -d)
 trap 'rm -rf "$HOMEPKI_WORKDIR"' EXIT
 ```
 
-Prefer a fresh workdir per test run. Generation is fast (RSA-2048), and it sidesteps every re-issue hazard below.
+Prefer a fresh workdir per test run. Generation is fast, and it sidesteps `--force` entirely.
 
 ### Loading a leaf into Kubernetes
 
@@ -161,53 +212,38 @@ kubectl create secret generic kong-ca \
   --from-file=ca.crt="$CA_BUNDLE"          # for mTLS / client verification
 ```
 
-## Re-issuing: the three hazards
+## Re-issuing
 
-`homepki` has no revoke, renew, or delete command, and **generate commands are not idempotent**. Re-running one is destructive in a way that is easy to miss, because two of the three cases print success. Verified behaviour:
+**Generate commands refuse to overwrite existing material.** A re-run without `--force` exits 1, prints what is in the way, and changes nothing on disk. `--force` replaces it:
 
-| Re-run | What happens |
+| Command with `--force` | What it does |
 | --- | --- |
-| `root-ca -d X` on an existing domain | **Silently succeeds.** Generates a new root key + cert and resets `ca/db/{index.db,serial}`. Every intermediate and leaf beneath it is instantly orphaned. |
-| `intermediate-ca -d X -n Y` on an existing intermediate | **Silently succeeds.** New intermediate key + cert, its `db/` reset. The intermediate re-verifies against the root, but every leaf under it is orphaned. |
-| `server-cert`/`client-cert` with an existing name | **Fails** — `ERROR:There is already a certificate for /O=.../CN=...` — but the new `.key` and `.csr` have *already overwritten* the old ones. The surviving `.crt` no longer matches the `.key` on disk. |
+| `root-ca -d X` | New root key + cert, `ca/db/{index.db,serial}` reset. **Every intermediate and leaf beneath it stops verifying.** |
+| `intermediate-ca -d X -n Y` | New intermediate key + cert, its `db/` reset. **Every leaf under it stops verifying.** |
+| `server-cert` / `client-cert` | Deletes the old `.crt`, `.key` and `.csr`, drops the subject's row from the intermediate's `index.db`, then issues a fresh key and certificate. |
+| `sign` | Same, for the subject named in the CSR. |
 
-The first two are silent: `root-ca list` and `intermediate-ca list` still show `✓ OK` for the tier you just replaced, and only the tier *below* flips to `✗ INVALID: x509: certificate signed by unknown authority`. So after any accidental re-run, **check the lowest tier**, not the one you touched.
-
-The third case leaves a broken key/cert pair that no `list` output can detect — chain verification only inspects certificates, not whether the private key matches.
-
-### Re-issuing a leaf, correctly
-
-Because the intermediate's `index.db` enforces one certificate per subject DN, re-issuing under the same name requires clearing both the files and the database entry. This works and is the supported path:
+Because `--force` on a leaf clears the CA database row, re-issuing under the same name is one command — no hand-editing of `index.db`:
 
 ```bash
-ROOT="${HOMEPKI_WORKDIR:-$HOME/.homepki}/runlocal-dev"
-CN="kong-gateway.bu1.runlocal.dev"
-
-# 1. drop the database entry for that subject
-grep -v "CN=$CN\$" "$ROOT/bu1/db/index.db" > "$ROOT/bu1/db/index.db.tmp" || true
-mv "$ROOT/bu1/db/index.db.tmp" "$ROOT/bu1/db/index.db"
-
-# 2. remove the stale leaf material
-rm -f "$ROOT"/bu1/server-tls/kong-gateway.{crt,key,csr}
-
-# 3. re-issue, optionally with different SANs
-homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway --san kong.local --san 10.0.0.5
+homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway \
+  --san kong.local --san 10.0.0.5 --force
 ```
 
-Note the `|| true`: `grep -v` exits non-zero when it filters out the only line, which aborts a `set -e` script otherwise.
+`--force` on a **CA tier** is the dangerous one: it orphans everything below silently. `root-ca list` and `intermediate-ca list` still show `✓ OK` for the tier you just replaced, and only the tier *below* flips to `✗ INVALID: x509: certificate signed by unknown authority`. After forcing a CA, **check the lowest tier**, not the one you touched.
 
-**The simpler alternative — and what to prefer in scripts — is to issue a new name** (`-s kong-gateway-v2`) or to start from a fresh workdir. Editing a CA database by hand is a last resort.
+**In scripts, prefer a new name or a fresh workdir over `--force`.**
 
 ## Things to know when writing recipes
 
-- **Every generate command is destructive on re-run.** Guard it, or build in a fresh workdir. To make a script safely resumable, test for the certificate first:
+- **A re-run of a generate command fails instead of overwriting** (exit 1, nothing touched). That makes `set -e` scripts abort on a second run, so guard the call or pass `--force` deliberately:
   ```bash
   [ -f "$ROOT/ca/runlocal-dev-root-ca.crt" ] || homepki root-ca -d runlocal.dev
   ```
 - **The `--workdir` flag is a persistent flag** and works on every subcommand, including the `list` subcommands. `$HOMEPKI_WORKDIR` is usually cleaner for a multi-command recipe.
 - **Generate commands are extremely verbose on stdout** — they echo each `openssl` invocation, the RSA progress dots, and the full text of the signed certificate. Redirect with `>/dev/null` in scripts and rely on the exit code, then confirm with `list -o json`.
 - **Validity periods are fixed:** CAs get 2190 days (~6 years), leaves get 365 days. There is no flag to change them. `list` reports `DAYS LEFT` so a recipe can check for imminent expiry, but renewal means re-issuing (see above).
-- **Keys are RSA-2048 with SHA-256**, set in the generated `*-defaults.conf`. No ECDSA option.
+- **Keys are RSA-2048 with SHA-256 by default.** `--key-type ecdsa` (P-256), `ecdsa-p384` or `ecdsa-p521` switches a tier to ECDSA. The signature digest is SHA-256 either way.
 - **The leaf CN is fully derived** from `<leaf>.<intermediate>.<domain>`. If a service must be reached at a name that does not fit that shape, add it with `--san` rather than trying to bend the leaf name — most TLS clients ignore the CN and match SANs only.
 - **`intermediate-ca` is the only tier that builds a chain file.** There is no root-only bundle beyond `ca/<name>-root-ca.crt` itself, and no full-chain file that includes a leaf; concatenate if you need one.
 - **Intermediates are `pathlen:0`**, so you cannot nest a second intermediate under one. The hierarchy is exactly three tiers deep.
@@ -247,7 +283,7 @@ The tier above was re-generated after this certificate was signed — see the ha
 
 ### `ERROR:There is already a certificate for /O=...`
 
-A leaf with that name already exists. Note that the `.key` was overwritten before this error, so the existing `.crt`/`.key` pair is now mismatched — follow [Re-issuing a leaf, correctly](#re-issuing-a-leaf-correctly), or issue under a new name.
+The intermediate's `index.db` already holds a row for that subject. Generate commands catch this first and refuse with their own message; openssl's version of it surfaces when `homepki sign` writes to an `--out` path outside the PKI tree, so no file was in the way. Re-run with `--force` to drop the row, or sign under a different common name.
 
 ### Verifying by hand
 
@@ -268,5 +304,5 @@ That last check is the one `homepki list` cannot do for you — run it after any
 
 - **Anything public-facing or production.** This is a local-development CA with unencrypted keys, fixed validity periods, and no revocation. Use Let's Encrypt/ACME or your organisation's PKI.
 - **In-cluster certificate lifecycle** (rotation, renewal, issuing on demand) — use `cert-manager`. homepki is a good fit for generating the root and intermediate you then hand to cert-manager as a CA issuer, but not for managing leaves inside a cluster.
-- **Browser-trusted local certificates with zero configuration** — `mkcert` installs its root into the OS and browser trust stores, which homepki does not do. If the goal is purely "no browser warning on localhost", mkcert is less work; homepki wins when you need the real hierarchy, mTLS client certificates, or multiple intermediates.
+- **Trust stores other than the macOS system keychain.** `homepki trust` covers macOS only. For Linux, Windows, Firefox or Java trust stores, `mkcert -install` does all of them; homepki wins when you need the real hierarchy, mTLS client certificates, multiple intermediates, or to sign a CSR you did not generate.
 - **CI pipelines**, unless the job installs Homebrew OpenSSL. Generating a throwaway cert with a few lines of `openssl` is fewer moving parts there.
