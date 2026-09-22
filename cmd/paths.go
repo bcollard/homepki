@@ -4,12 +4,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/bcollard/homepki/pkg/pki"
 )
 
 // forceGenerate backs the --force flag shared by every generate command.
 var forceGenerate bool
+
+// keyType backs the --key-type flag shared by every generate command.
+var keyType string
+
+// keyTypeFlagUsage documents --key-type once for every generate command.
+var keyTypeFlagUsage = "Private key algorithm: " + strings.Join(pki.KeyTypes(), ", ")
 
 // pathsPresent returns the subset of paths that exist on disk.
 func pathsPresent(paths ...string) []string {

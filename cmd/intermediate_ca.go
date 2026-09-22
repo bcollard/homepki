@@ -16,6 +16,9 @@ var intermediateCACmd = &cobra.Command{
 	Example: `  # Generate an Intermediate CA named 'bu1' for runlocal.dev
   homepki intermediate-ca --domain runlocal.dev --name bu1
 
+  # Generate one with an ECDSA P-256 key
+  homepki intermediate-ca --domain runlocal.dev --name bu1 --key-type ecdsa
+
   # List existing Intermediate CAs with chain verification
   homepki intermediate-ca list --domain runlocal.dev
 
@@ -28,6 +31,11 @@ var intermediateCACmd = &cobra.Command{
 		if intermediateCAName == "" {
 			return fmt.Errorf("intermediate CA name is required")
 		}
+		keyArgs, err := pki.KeyGenArgs(keyType)
+		if err != nil {
+			return err
+		}
+
 		rootCALiteralName := pki.GetRootCALiteralName(rootCADomain)
 		baseDir, err := getEffectiveWorkDir()
 		if err != nil {
@@ -148,10 +156,9 @@ subjectKeyIdentifier    = hash
 		// OpenSSL req
 		keyPath := filepath.Join(intermediateCADir, "private", fmt.Sprintf("%s-intermediate-ca.key", intermediateCAName))
 		csrPath := filepath.Join(intermediateCADir, fmt.Sprintf("%s-intermediate-ca.csr", intermediateCAName))
-		if err := pki.RunCommand("openssl", "req", "-new", "-nodes", "-sha256", "-newkey", "rsa:2048",
-			"-config", intermediateCAConfPath,
-			"-keyout", keyPath,
-			"-out", csrPath); err != nil {
+		reqArgs := append([]string{"req", "-new", "-nodes", "-sha256"}, keyArgs...)
+		reqArgs = append(reqArgs, "-config", intermediateCAConfPath, "-keyout", keyPath, "-out", csrPath)
+		if err := pki.RunCommand("openssl", reqArgs...); err != nil {
 			return err
 		}
 
@@ -273,6 +280,7 @@ func init() {
 	rootCmd.AddCommand(intermediateCACmd)
 	intermediateCACmd.Flags().StringVarP(&rootCADomain, "domain", "d", "", "Root CA domain name (e.g., runlocal.dev)")
 	intermediateCACmd.Flags().StringVarP(&intermediateCAName, "name", "n", "", "Intermediate CA name (e.g., bu1)")
+	intermediateCACmd.Flags().StringVar(&keyType, "key-type", "rsa", keyTypeFlagUsage)
 	intermediateCACmd.Flags().BoolVarP(&forceGenerate, "force", "f", false, "Replace an existing Intermediate CA (orphans every certificate under it)")
 	intermediateCACmd.MarkFlagRequired("domain")
 	intermediateCACmd.MarkFlagRequired("name")

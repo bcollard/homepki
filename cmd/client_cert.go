@@ -36,6 +36,11 @@ var clientCertCmd = &cobra.Command{
 		if clientName == "" {
 			return fmt.Errorf("client name is required")
 		}
+		keyArgs, err := pki.KeyGenArgs(keyType)
+		if err != nil {
+			return err
+		}
+
 		rootCALiteralName := pki.GetRootCALiteralName(rootCADomain)
 		baseDir, err := getEffectiveWorkDir()
 		if err != nil {
@@ -107,10 +112,9 @@ DNS.1 = %s.%s.%s
 		}
 
 		// OpenSSL req
-		if err := pki.RunCommand("openssl", "req", "-new", "-nodes", "-sha256", "-newkey", "rsa:2048",
-			"-config", clientConfPath,
-			"-keyout", keyPath,
-			"-out", csrPath); err != nil {
+		reqArgs := append([]string{"req", "-new", "-nodes", "-sha256"}, keyArgs...)
+		reqArgs = append(reqArgs, "-config", clientConfPath, "-keyout", keyPath, "-out", csrPath)
+		if err := pki.RunCommand("openssl", reqArgs...); err != nil {
 			return err
 		}
 
@@ -200,6 +204,7 @@ func init() {
 	clientCertCmd.Flags().StringVarP(&rootCADomain, "domain", "d", "", "Root CA domain name (e.g., runlocal.dev)")
 	clientCertCmd.Flags().StringVarP(&intermediateCAName, "intermediate", "i", "", "Intermediate CA name (e.g., bu1)")
 	clientCertCmd.Flags().StringVarP(&clientName, "client", "c", "", "Client name (e.g., my-client)")
+	clientCertCmd.Flags().StringVar(&keyType, "key-type", "rsa", keyTypeFlagUsage)
 	clientCertCmd.Flags().BoolVarP(&forceGenerate, "force", "f", false, "Replace an existing certificate of the same name (its key is regenerated)")
 	clientCertCmd.MarkFlagRequired("domain")
 	clientCertCmd.MarkFlagRequired("intermediate")

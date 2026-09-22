@@ -44,6 +44,11 @@ var serverCertCmd = &cobra.Command{
 		if serverName == "" {
 			return fmt.Errorf("server name is required")
 		}
+		keyArgs, err := pki.KeyGenArgs(keyType)
+		if err != nil {
+			return err
+		}
+
 		rootCALiteralName := pki.GetRootCALiteralName(rootCADomain)
 		baseDir, err := getEffectiveWorkDir()
 		if err != nil {
@@ -118,10 +123,9 @@ subjectAltName          = critical, @server_alt_names
 		}
 
 		// OpenSSL req
-		if err := pki.RunCommand("openssl", "req", "-new", "-nodes", "-sha256", "-newkey", "rsa:2048",
-			"-config", serverConfPath,
-			"-keyout", keyPath,
-			"-out", csrPath); err != nil {
+		reqArgs := append([]string{"req", "-new", "-nodes", "-sha256"}, keyArgs...)
+		reqArgs = append(reqArgs, "-config", serverConfPath, "-keyout", keyPath, "-out", csrPath)
+		if err := pki.RunCommand("openssl", reqArgs...); err != nil {
 			return err
 		}
 
@@ -211,6 +215,7 @@ func init() {
 	serverCertCmd.Flags().StringVarP(&rootCADomain, "domain", "d", "", "Root CA domain name (e.g., runlocal.dev)")
 	serverCertCmd.Flags().StringVarP(&intermediateCAName, "intermediate", "i", "", "Intermediate CA name (e.g., bu1)")
 	serverCertCmd.Flags().StringVarP(&serverName, "server", "s", "", "Server name (e.g., kong-gateway-clustering)")
+	serverCertCmd.Flags().StringVar(&keyType, "key-type", "rsa", keyTypeFlagUsage)
 	serverCertCmd.Flags().BoolVarP(&forceGenerate, "force", "f", false, "Replace an existing certificate of the same name (its key is regenerated)")
 	serverCertCmd.Flags().StringArrayVar(&serverSANs, "san", nil, "Additional Subject Alternative Name (repeatable). Bare values are auto-detected as IP or DNS; prefix with DNS:, IP:, email:, or URI: to force a type")
 	serverCertCmd.MarkFlagRequired("domain")

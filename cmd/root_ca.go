@@ -16,6 +16,9 @@ var rootCACmd = &cobra.Command{
 	Example: `  # Generate a Root CA for runlocal.dev
   homepki root-ca --domain runlocal.dev
 
+  # Generate a Root CA with an ECDSA P-256 key
+  homepki root-ca --domain runlocal.dev --key-type ecdsa
+
   # List existing Root CAs
   homepki root-ca list
 
@@ -25,6 +28,11 @@ var rootCACmd = &cobra.Command{
 		if rootCADomain == "" {
 			return fmt.Errorf("root CA domain name is required")
 		}
+		keyArgs, err := pki.KeyGenArgs(keyType)
+		if err != nil {
+			return err
+		}
+
 		rootCALiteralName := pki.GetRootCALiteralName(rootCADomain)
 		baseDir, err := getEffectiveWorkDir()
 		if err != nil {
@@ -133,10 +141,9 @@ subjectKeyIdentifier    = hash
 		// OpenSSL req
 		keyPath := filepath.Join(rootCADir, "private", fmt.Sprintf("%s-root-ca.key", rootCALiteralName))
 		csrPath := filepath.Join(rootCADir, fmt.Sprintf("%s-root-ca.csr", rootCALiteralName))
-		if err := pki.RunCommand("openssl", "req", "-new", "-nodes", "-sha256", "-newkey", "rsa:2048",
-			"-config", rootCAConfPath,
-			"-keyout", keyPath,
-			"-out", csrPath); err != nil {
+		reqArgs := append([]string{"req", "-new", "-nodes", "-sha256"}, keyArgs...)
+		reqArgs = append(reqArgs, "-config", rootCAConfPath, "-keyout", keyPath, "-out", csrPath)
+		if err := pki.RunCommand("openssl", reqArgs...); err != nil {
 			return err
 		}
 
@@ -208,6 +215,7 @@ func init() {
 	rootCmd.AddCommand(rootCACmd)
 	rootCACmd.AddCommand(rootCAListCmd)
 	rootCACmd.Flags().StringVarP(&rootCADomain, "domain", "d", "", "Root CA domain name (e.g., runlocal.dev)")
+	rootCACmd.Flags().StringVar(&keyType, "key-type", "rsa", keyTypeFlagUsage)
 	rootCACmd.Flags().BoolVarP(&forceGenerate, "force", "f", false, "Replace an existing Root CA (orphans every certificate under it)")
 	rootCACmd.MarkFlagRequired("domain")
 	rootCAListCmd.Flags().StringVarP(&outputFormat, "output", "o", "table", "Output format: table or json")
