@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <title>homepki – three-tier PKI for local development</title>
-<meta name="description" content="A command line tool that creates a root CA, intermediate CAs, and server or client TLS certificates on your workstation. Verifies chains of trust and prints JSON for scripts.">
+<meta name="description" content="A command line tool that creates a root CA, intermediate CAs, and server or client TLS certificates on your workstation. Verifies chains of trust, signs external requests, and installs the root into the macOS trust store.">
 <link rel="canonical" href="https://bcollard.github.io/homepki/">
 <link rel="icon" href="mark.svg" type="image/svg+xml">
 
 <meta property="og:type" content="website">
 <meta property="og:title" content="homepki – three-tier PKI for local development">
-<meta property="og:description" content="Root CA, intermediate CAs, and server or client leaves, one command per tier. Chains are verified in-process, extended key usage included, with JSON output for scripts.">
+<meta property="og:description" content="Root CA, intermediate CAs, and server or client leaves, one command per tier. Chains are verified in-process, RSA or ECDSA, with JSON output for scripts.">
 <meta property="og:url" content="https://bcollard.github.io/homepki/">
 <meta name="twitter:card" content="summary">
 
@@ -34,6 +34,10 @@
     "Chain of trust verification including extended key usage",
     "JSON output for scripting",
     "Subject Alternative Names with automatic IP and DNS classification",
+    "RSA or ECDSA keys per tier",
+    "Installs the root CA into the macOS system trust store",
+    "Signs certificate requests generated elsewhere",
+    "Refuses to overwrite existing certificates unless forced",
     "Includes an Agent Skill for AI coding tools"
   ],
   "isAccessibleForFree": true,
@@ -76,7 +80,7 @@
       "name": "Is it safe to re-run a generate command?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "No. Re-running root-ca or intermediate-ca generates a new key and resets that CA's database. Every certificate below it stops verifying, and the command still reports success. Use a fresh working directory, or test for the certificate file before running the command."
+        "text": "Yes. A generate command refuses to overwrite existing material: it exits non-zero, prints what is in the way, and changes nothing. Pass --force to replace it deliberately. On a CA tier that is still destructive, because every certificate below it stops verifying."
       }
     }
   ]
@@ -367,6 +371,44 @@ kubectl create secret generic kong-ca \
 
     <div class="callout">
       <p>Quote any SAN containing <code>*</code>. An unquoted <code>--san DNS:*.kong.local</code> is expanded by the shell before homepki receives it, and zsh fails the command with <code>no matches found</code>.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>RSA or ECDSA</h2>
+    <p class="lede">Every generate command takes <code>--key-type</code>. RSA-2048 is the default; ECDSA is available on P-256, P-384 and P-521.</p>
+
+<pre><code>homepki root-ca         -d runlocal.dev --key-type ecdsa
+homepki intermediate-ca -d runlocal.dev -n bu1 --key-type ecdsa
+homepki server-cert     -d runlocal.dev -i bu1 -s kong-gateway --key-type ecdsa-p384</code></pre>
+
+    <p>Tiers are independent, so an ECDSA leaf under an RSA intermediate is fine. The signature digest is SHA-256 either way. An unrecognised value is rejected before anything is written to disk.</p>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <h2>Nothing is overwritten by accident</h2>
+    <p class="lede">A generate command refuses to replace material that already exists. It exits non-zero, names the files in the way, and changes nothing.</p>
+
+<pre class="wide"><code>$ homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway
+<span class="no">Error: a server certificate named "kong-gateway" already exists under runlocal.dev/bu1:</span>
+  ~/.homepki/runlocal-dev/bu1/server-tls/kong-gateway.crt
+  ~/.homepki/runlocal-dev/bu1/server-tls/kong-gateway.key
+  ~/.homepki/runlocal-dev/bu1/server-tls/kong-gateway.csr
+
+Re-issuing overwrites its private key, so anything already serving that pair
+breaks. Pass --force to replace it, or issue under another name</code></pre>
+
+    <p><code>--force</code> on a leaf removes those files <em>and</em> that subject's row from the intermediate's certificate database — the row that otherwise makes OpenSSL refuse a second certificate for the same name. Re-issuing under the same name is one command:</p>
+
+<pre><code>homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway \
+  --san kong.local --san 10.0.0.5 --force</code></pre>
+
+    <div class="callout">
+      <p><code>--force</code> on a CA tier is the destructive one: a new key and a reset database orphan every certificate below it. The tier you replaced keeps reporting <code>✓ OK</code>, so check the tier <em>below</em> it.</p>
     </div>
   </div>
 </section>
