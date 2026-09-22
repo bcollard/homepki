@@ -25,7 +25,6 @@ var rootCACmd = &cobra.Command{
 		if rootCADomain == "" {
 			return fmt.Errorf("root CA domain name is required")
 		}
-
 		rootCALiteralName := pki.GetRootCALiteralName(rootCADomain)
 		baseDir, err := getEffectiveWorkDir()
 		if err != nil {
@@ -33,6 +32,18 @@ var rootCACmd = &cobra.Command{
 		}
 		workDir := filepath.Join(baseDir, rootCALiteralName)
 		rootCADir := filepath.Join(workDir, "ca")
+
+		crtPath := filepath.Join(rootCADir, fmt.Sprintf("%s-root-ca.crt", rootCALiteralName))
+		if present := pathsPresent(crtPath); len(present) > 0 {
+			if !forceGenerate {
+				return fmt.Errorf("a Root CA for %s already exists at %s\n\n"+
+					"Re-generating it creates a new key and resets its database, which orphans every "+
+					"Intermediate CA and leaf certificate beneath it. Pass --force to replace it anyway",
+					rootCADomain, crtPath)
+			}
+			fmt.Printf("--force: replacing the existing Root CA for %s\n", rootCADomain)
+			fmt.Println("Every Intermediate CA and leaf certificate under it will stop verifying — re-generate them.")
+		}
 
 		fmt.Printf("Initializing Root CA for %s in %s\n", rootCADomain, workDir)
 
@@ -130,7 +141,6 @@ subjectKeyIdentifier    = hash
 		}
 
 		// OpenSSL ca selfsign
-		crtPath := filepath.Join(rootCADir, fmt.Sprintf("%s-root-ca.crt", rootCALiteralName))
 		if err := pki.RunCommand("openssl", "ca", "-selfsign", "-batch",
 			"-config", rootCAConfPath,
 			"-in", csrPath,
@@ -198,6 +208,7 @@ func init() {
 	rootCmd.AddCommand(rootCACmd)
 	rootCACmd.AddCommand(rootCAListCmd)
 	rootCACmd.Flags().StringVarP(&rootCADomain, "domain", "d", "", "Root CA domain name (e.g., runlocal.dev)")
+	rootCACmd.Flags().BoolVarP(&forceGenerate, "force", "f", false, "Replace an existing Root CA (orphans every certificate under it)")
 	rootCACmd.MarkFlagRequired("domain")
 	rootCAListCmd.Flags().StringVarP(&outputFormat, "output", "o", "table", "Output format: table or json")
 }

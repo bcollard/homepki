@@ -28,7 +28,6 @@ var intermediateCACmd = &cobra.Command{
 		if intermediateCAName == "" {
 			return fmt.Errorf("intermediate CA name is required")
 		}
-
 		rootCALiteralName := pki.GetRootCALiteralName(rootCADomain)
 		baseDir, err := getEffectiveWorkDir()
 		if err != nil {
@@ -43,6 +42,18 @@ var intermediateCACmd = &cobra.Command{
 			return err
 		} else if !exists {
 			return fmt.Errorf("root CA directory %s does not exist. Please create the Root CA first", rootCADir)
+		}
+
+		crtPath := filepath.Join(intermediateCADir, fmt.Sprintf("%s-intermediate-ca.crt", intermediateCAName))
+		if present := pathsPresent(crtPath); len(present) > 0 {
+			if !forceGenerate {
+				return fmt.Errorf("an Intermediate CA named %q already exists at %s\n\n"+
+					"Re-generating it creates a new key and resets its database, which orphans every "+
+					"leaf certificate beneath it. Pass --force to replace it anyway, or pick another name",
+					intermediateCAName, crtPath)
+			}
+			fmt.Printf("--force: replacing the existing Intermediate CA %s\n", intermediateCAName)
+			fmt.Println("Every leaf certificate under it will stop verifying — re-generate them.")
 		}
 
 		fmt.Printf("Initializing Intermediate CA %s for %s\n", intermediateCAName, rootCADomain)
@@ -146,7 +157,6 @@ subjectKeyIdentifier    = hash
 
 		// Sign with Root CA
 		rootCAConfPath := filepath.Join(rootCADir, fmt.Sprintf("%s.conf", rootCALiteralName))
-		crtPath := filepath.Join(intermediateCADir, fmt.Sprintf("%s-intermediate-ca.crt", intermediateCAName))
 		if err := pki.RunCommand("openssl", "ca", "-batch",
 			"-config", rootCAConfPath,
 			"-extensions", "signing_ca_ext",
@@ -263,6 +273,7 @@ func init() {
 	rootCmd.AddCommand(intermediateCACmd)
 	intermediateCACmd.Flags().StringVarP(&rootCADomain, "domain", "d", "", "Root CA domain name (e.g., runlocal.dev)")
 	intermediateCACmd.Flags().StringVarP(&intermediateCAName, "name", "n", "", "Intermediate CA name (e.g., bu1)")
+	intermediateCACmd.Flags().BoolVarP(&forceGenerate, "force", "f", false, "Replace an existing Intermediate CA (orphans every certificate under it)")
 	intermediateCACmd.MarkFlagRequired("domain")
 	intermediateCACmd.MarkFlagRequired("name")
 

@@ -15,6 +15,12 @@ var rootCmd = &cobra.Command{
 	Use:   "homepki",
 	Short: "A simple PKI management tool",
 	Long:  `A tool to generate root certificates, intermediate certificates, and leaf certificates for both client and server.`,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// Flags have been parsed and validated by now, so any later error is a
+		// runtime failure rather than a usage mistake — print it on its own
+		// instead of burying it under the help text.
+		cmd.SilenceUsage = true
+	},
 }
 
 var versionCmd = &cobra.Command{

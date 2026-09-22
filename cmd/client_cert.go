@@ -4,6 +4,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/bcollard/homepki/pkg/pki"
 	"github.com/spf13/cobra"
@@ -16,6 +17,9 @@ var clientCertCmd = &cobra.Command{
 	Short: "Generate a client TLS certificate signed by an Intermediate CA",
 	Example: `  # Generate a client certificate for 'my-client'
   homepki client-cert --domain runlocal.dev --intermediate bu1 --client my-client
+
+  # Replace an existing certificate of the same name
+  homepki client-cert --domain runlocal.dev --intermediate bu1 --client my-client --force
 
   # List existing client certificates with chain verification
   homepki client-cert list --domain runlocal.dev --intermediate bu1
@@ -32,7 +36,6 @@ var clientCertCmd = &cobra.Command{
 		if clientName == "" {
 			return fmt.Errorf("client name is required")
 		}
-
 		rootCALiteralName := pki.GetRootCALiteralName(rootCADomain)
 		baseDir, err := getEffectiveWorkDir()
 		if err != nil {
@@ -48,6 +51,22 @@ var clientCertCmd = &cobra.Command{
 			return err
 		} else if !exists {
 			return fmt.Errorf("intermediate CA certificate %s does not exist. Please create the Intermediate CA first", intermediateCACrtPath)
+		}
+
+		commonName := fmt.Sprintf("%s.%s.%s", clientName, intermediateCAName, rootCADomain)
+		crtPath := filepath.Join(clientDir, fmt.Sprintf("%s.crt", clientName))
+		keyPath := filepath.Join(clientDir, fmt.Sprintf("%s.key", clientName))
+		csrPath := filepath.Join(clientDir, fmt.Sprintf("%s.csr", clientName))
+		if present := pathsPresent(crtPath, keyPath, csrPath); len(present) > 0 {
+			if !forceGenerate {
+				return fmt.Errorf("a client certificate named %q already exists under %s/%s:\n  %s\n\n"+
+					"Re-issuing overwrites its private key, so anything already authenticating with that pair breaks. "+
+					"Pass --force to replace it, or issue under another name",
+					clientName, rootCADomain, intermediateCAName, strings.Join(present, "\n  "))
+			}
+			if err := replaceLeaf(intermediateCADir, commonName, present); err != nil {
+				return err
+			}
 		}
 
 		fmt.Printf("Generating Client Certificate %s for %s under %s\n", clientName, intermediateCAName, rootCADomain)
@@ -88,8 +107,6 @@ DNS.1 = %s.%s.%s
 		}
 
 		// OpenSSL req
-		keyPath := filepath.Join(clientDir, fmt.Sprintf("%s.key", clientName))
-		csrPath := filepath.Join(clientDir, fmt.Sprintf("%s.csr", clientName))
 		if err := pki.RunCommand("openssl", "req", "-new", "-nodes", "-sha256", "-newkey", "rsa:2048",
 			"-config", clientConfPath,
 			"-keyout", keyPath,
@@ -99,7 +116,6 @@ DNS.1 = %s.%s.%s
 
 		// Sign with Intermediate CA
 		intermediateCAConfPath := filepath.Join(intermediateCADir, fmt.Sprintf("%s.conf", intermediateCAName))
-		crtPath := filepath.Join(clientDir, fmt.Sprintf("%s.crt", clientName))
 		if err := pki.RunCommand("openssl", "ca", "-batch",
 			"-config", intermediateCAConfPath,
 			"-extensions", "client_ext",
@@ -184,6 +200,7 @@ func init() {
 	clientCertCmd.Flags().StringVarP(&rootCADomain, "domain", "d", "", "Root CA domain name (e.g., runlocal.dev)")
 	clientCertCmd.Flags().StringVarP(&intermediateCAName, "intermediate", "i", "", "Intermediate CA name (e.g., bu1)")
 	clientCertCmd.Flags().StringVarP(&clientName, "client", "c", "", "Client name (e.g., my-client)")
+	clientCertCmd.Flags().BoolVarP(&forceGenerate, "force", "f", false, "Replace an existing certificate of the same name (its key is regenerated)")
 	clientCertCmd.MarkFlagRequired("domain")
 	clientCertCmd.MarkFlagRequired("intermediate")
 	clientCertCmd.MarkFlagRequired("client")

@@ -4,6 +4,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/bcollard/homepki/pkg/pki"
 	"github.com/spf13/cobra"
@@ -25,6 +26,9 @@ var serverCertCmd = &cobra.Command{
   homepki server-cert --domain runlocal.dev --intermediate bu1 --server kong-gateway \
     --san kong.local --san 192.168.1.10 --san IP:::1 --san DNS:*.kong.local
 
+  # Replace an existing certificate of the same name
+  homepki server-cert --domain runlocal.dev --intermediate bu1 --server kong-gateway --force
+
   # List existing server certificates with chain verification
   homepki server-cert list --domain runlocal.dev --intermediate bu1
 
@@ -40,7 +44,6 @@ var serverCertCmd = &cobra.Command{
 		if serverName == "" {
 			return fmt.Errorf("server name is required")
 		}
-
 		rootCALiteralName := pki.GetRootCALiteralName(rootCADomain)
 		baseDir, err := getEffectiveWorkDir()
 		if err != nil {
@@ -58,6 +61,22 @@ var serverCertCmd = &cobra.Command{
 			return fmt.Errorf("intermediate CA certificate %s does not exist. Please create the Intermediate CA first", intermediateCACrtPath)
 		}
 
+		commonName := fmt.Sprintf("%s.%s.%s", serverName, intermediateCAName, rootCADomain)
+		crtPath := filepath.Join(serverDir, fmt.Sprintf("%s.crt", serverName))
+		keyPath := filepath.Join(serverDir, fmt.Sprintf("%s.key", serverName))
+		csrPath := filepath.Join(serverDir, fmt.Sprintf("%s.csr", serverName))
+		if present := pathsPresent(crtPath, keyPath, csrPath); len(present) > 0 {
+			if !forceGenerate {
+				return fmt.Errorf("a server certificate named %q already exists under %s/%s:\n  %s\n\n"+
+					"Re-issuing overwrites its private key, so anything already serving that pair breaks. "+
+					"Pass --force to replace it, or issue under another name",
+					serverName, rootCADomain, intermediateCAName, strings.Join(present, "\n  "))
+			}
+			if err := replaceLeaf(intermediateCADir, commonName, present); err != nil {
+				return err
+			}
+		}
+
 		fmt.Printf("Generating Server Certificate %s for %s under %s\n", serverName, intermediateCAName, rootCADomain)
 
 		// Create directories
@@ -65,8 +84,7 @@ var serverCertCmd = &cobra.Command{
 			return err
 		}
 
-		defaultDNS := fmt.Sprintf("%s.%s.%s", serverName, intermediateCAName, rootCADomain)
-		sanSection, err := pki.BuildSANSection("server_alt_names", append([]string{defaultDNS}, serverSANs...))
+		sanSection, err := pki.BuildSANSection("server_alt_names", append([]string{commonName}, serverSANs...))
 		if err != nil {
 			return err
 		}
@@ -100,8 +118,6 @@ subjectAltName          = critical, @server_alt_names
 		}
 
 		// OpenSSL req
-		keyPath := filepath.Join(serverDir, fmt.Sprintf("%s.key", serverName))
-		csrPath := filepath.Join(serverDir, fmt.Sprintf("%s.csr", serverName))
 		if err := pki.RunCommand("openssl", "req", "-new", "-nodes", "-sha256", "-newkey", "rsa:2048",
 			"-config", serverConfPath,
 			"-keyout", keyPath,
@@ -111,7 +127,6 @@ subjectAltName          = critical, @server_alt_names
 
 		// Sign with Intermediate CA
 		intermediateCAConfPath := filepath.Join(intermediateCADir, fmt.Sprintf("%s.conf", intermediateCAName))
-		crtPath := filepath.Join(serverDir, fmt.Sprintf("%s.crt", serverName))
 		if err := pki.RunCommand("openssl", "ca", "-batch",
 			"-config", intermediateCAConfPath,
 			"-extensions", "server_ext",
@@ -196,6 +211,7 @@ func init() {
 	serverCertCmd.Flags().StringVarP(&rootCADomain, "domain", "d", "", "Root CA domain name (e.g., runlocal.dev)")
 	serverCertCmd.Flags().StringVarP(&intermediateCAName, "intermediate", "i", "", "Intermediate CA name (e.g., bu1)")
 	serverCertCmd.Flags().StringVarP(&serverName, "server", "s", "", "Server name (e.g., kong-gateway-clustering)")
+	serverCertCmd.Flags().BoolVarP(&forceGenerate, "force", "f", false, "Replace an existing certificate of the same name (its key is regenerated)")
 	serverCertCmd.Flags().StringArrayVar(&serverSANs, "san", nil, "Additional Subject Alternative Name (repeatable). Bare values are auto-detected as IP or DNS; prefix with DNS:, IP:, email:, or URI: to force a type")
 	serverCertCmd.MarkFlagRequired("domain")
 	serverCertCmd.MarkFlagRequired("intermediate")
