@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"crypto"
 	"crypto/x509"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/bcollard/homepki/pkg/pki"
@@ -21,10 +23,52 @@ var nameConstraints []string
 
 // nameConstraintFlagUsage documents --name-constraint once for both CA tiers.
 const nameConstraintFlagUsage = "Restrict the names this CA may issue for (repeatable), in openssl syntax: " +
-	"permitted;DNS:.example.internal or excluded;IP:10.0.0.0/8. The permitted; prefix may be omitted"
+	"permitted;DNS:.example.internal or excluded;IP:10.0.0.0/8. Types: DNS, IP, email, URI. The permitted; prefix may be omitted"
 
 // keyTypeFlagUsage documents --key-type once for every generate command.
 var keyTypeFlagUsage = "Private key algorithm: " + strings.Join(pki.KeyTypes(), ", ")
+
+// caFiles locates a CA tier's certificate and private key.
+type caFiles struct {
+	dir, cert, key string
+}
+
+func rootCAFiles(workDir, literal string) caFiles {
+	dir := filepath.Join(workDir, "ca")
+	return caFiles{
+		dir:  dir,
+		cert: filepath.Join(dir, literal+"-root-ca.crt"),
+		key:  filepath.Join(dir, "private", literal+"-root-ca.key"),
+	}
+}
+
+func intermediateCAFiles(workDir, name string) caFiles {
+	dir := filepath.Join(workDir, name)
+	return caFiles{
+		dir:  dir,
+		cert: filepath.Join(dir, name+"-intermediate-ca.crt"),
+		key:  filepath.Join(dir, "private", name+"-intermediate-ca.key"),
+	}
+}
+
+// load reads a CA's certificate and key and checks that they belong together.
+func (f caFiles) load(tier string) (*x509.Certificate, crypto.Signer, error) {
+	cert, err := pki.LoadCert(f.cert)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil, fmt.Errorf("%s certificate %s does not exist. Please create the %s first", tier, f.cert, tier)
+		}
+		return nil, nil, err
+	}
+	key, err := pki.LoadKey(f.key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s private key: %w", tier, err)
+	}
+	if err := pki.CheckKeyPair(cert, key); err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", tier, err)
+	}
+	return cert, key, nil
+}
 
 // pathsPresent returns the subset of paths that exist on disk.
 func pathsPresent(paths ...string) []string {
@@ -37,70 +81,70 @@ func pathsPresent(paths ...string) []string {
 	return present
 }
 
-// replaceLeaf clears an existing leaf so that it can be issued again: the files
-// on disk, and the row in the intermediate's CA database that would otherwise
-// make openssl refuse a second certificate for the same subject.
-func replaceLeaf(intermediateCADir, commonName string, files []string) error {
-	removed, err := removeLeaf(intermediateCADir, commonName, files)
-	if err != nil {
-		return err
+// removePaths deletes files and directories, ignoring those already gone.
+func removePaths(paths ...string) error {
+	for _, p := range paths {
+		if err := os.RemoveAll(p); err != nil {
+			return err
+		}
 	}
-	fmt.Printf("--force: replacing %s (removed %d file(s), %d CA database row(s))\n", commonName, len(files), removed)
 	return nil
 }
 
-// removeLeaf deletes a leaf's files and its rows in the intermediate's CA
-// database, and reports how many rows were removed.
-func removeLeaf(intermediateCADir, commonName string, files []string) (int, error) {
-	for _, f := range files {
-		if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
-			return 0, err
+// serialCopyPattern matches the per-serial certificate copies that openssl ca
+// left in a CA directory (new_certs_dir) before homepki 0.7.0.
+var serialCopyPattern = regexp.MustCompile(`^[0-9A-F]+\.pem$`)
+
+// removeOpenSSLLeftovers deletes what homepki wrote when it drove openssl —
+// config files, request files, the CA database and openssl's per-serial
+// certificate copies — so a replaced CA leaves nothing misleading behind.
+func removeOpenSSLLeftovers(dir string, files ...string) error {
+	paths := append([]string{filepath.Join(dir, "db")}, files...)
+	if entries, err := os.ReadDir(dir); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() && serialCopyPattern.MatchString(e.Name()) {
+				paths = append(paths, filepath.Join(dir, e.Name()))
+			}
 		}
 	}
-	return pki.RemoveIndexEntry(filepath.Join(intermediateCADir, "db", "index.db"), commonName)
+	return removePaths(paths...)
 }
 
-// rejectOutsideConstraints verifies a freshly signed leaf against its chain.
-// openssl ca does not enforce name constraints when signing, so a leaf naming a
-// host outside the root's or intermediate's constraints would be issued and
-// then rejected by every TLS client. When that happens the leaf is removed —
-// its files and its CA database row — and an error explains why.
-func rejectOutsideConstraints(intermediateCADir, commonName, crtPath, intermediateCrtPath, rootCrtPath string, files []string) error {
-	err := pki.VerifyLeafCert(crtPath, intermediateCrtPath, rootCrtPath, []x509.ExtKeyUsage{x509.ExtKeyUsageAny})
-	if !pki.IsNameConstraintViolation(err) {
-		return nil
+// parseNameConstraints parses --name-constraint and warns when the common name
+// homepki gives every generated leaf (<leaf>.<intermediate>.<domain>) falls
+// outside the permitted DNS subtrees, since server-cert and client-cert always
+// add it as a Subject Alternative Name.
+func parseNameConstraints(domain, intermediate string) (pki.NameConstraints, error) {
+	nc, err := pki.ParseNameConstraints(nameConstraints)
+	if err != nil {
+		return nc, err
 	}
-	if _, rmErr := removeLeaf(intermediateCADir, commonName, files); rmErr != nil {
-		return fmt.Errorf("%w (and removing the rejected certificate failed: %v)", err, rmErr)
-	}
-	return fmt.Errorf("%w\n\nA CA in the chain carries name constraints that exclude one of this certificate's "+
-		"Subject Alternative Names, so no TLS client would accept it. It has been removed; "+
-		"check the constraints with: openssl x509 -noout -ext nameConstraints -in %s", err, intermediateCrtPath)
-}
-
-// warnLeafCNOutsideConstraints prints a warning when the common name homepki
-// gives every generated leaf (<leaf>.<intermediate>.<domain>) falls outside the
-// permitted DNS constraints, since server-cert and client-cert always add it as
-// a Subject Alternative Name.
-func warnLeafCNOutsideConstraints(domain, intermediate string) {
 	probe, sample := "leaf.ca."+domain, "<leaf>.<intermediate>."+domain
 	if intermediate != "" {
 		probe, sample = "leaf."+intermediate+"."+domain, "<leaf>."+intermediate+"."+domain
 	}
-	if pki.PermittedDNSMismatch(nameConstraints, probe) {
+	if nc.PermittedDNSMismatch(probe) {
 		fmt.Printf("Warning: server-cert and client-cert always add %s as a Subject Alternative Name, "+
 			"which these constraints do not permit. Only certificates signed with 'homepki sign' "+
 			"can be issued under this CA.\n", sample)
 	}
+	return nc, nil
 }
 
-// nameConstraintsLine renders the openssl config line for a nameConstraints
-// extension value, or nothing when there is none.
-func nameConstraintsLine(ext string) string {
-	if ext == "" {
-		return ""
+// checkLeaf verifies a freshly signed leaf against its chain before anything
+// is written. A name outside a CA's constraints gets an explanation, since no
+// TLS client would accept the certificate.
+func checkLeaf(leaf, intermediate, root *x509.Certificate, kind pki.LeafKind, intermediatePath string) error {
+	err := pki.VerifyChain(leaf, intermediate, root, []x509.ExtKeyUsage{kind.ExtKeyUsage()})
+	if err == nil {
+		return nil
 	}
-	return "nameConstraints         = " + ext + "\n"
+	if pki.IsNameConstraintViolation(err) {
+		return fmt.Errorf("%w\n\nA CA in the chain carries name constraints that exclude one of this certificate's "+
+			"Subject Alternative Names, so no TLS client would accept it. Nothing was written; "+
+			"check the constraints with: openssl x509 -noout -ext nameConstraints -in %s", err, intermediatePath)
+	}
+	return fmt.Errorf("the new certificate does not verify against its chain: %w", err)
 }
 
 // rootCAPaths resolves the working directory and the root CA certificate for a domain.
@@ -111,6 +155,5 @@ func rootCAPaths(domain string) (workDir string, certPath string, err error) {
 	}
 	literal := pki.GetRootCALiteralName(domain)
 	workDir = filepath.Join(baseDir, literal)
-	certPath = filepath.Join(workDir, "ca", fmt.Sprintf("%s-root-ca.crt", literal))
-	return workDir, certPath, nil
+	return workDir, rootCAFiles(workDir, literal).cert, nil
 }

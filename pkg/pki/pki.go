@@ -2,12 +2,10 @@ package pki
 
 import (
 	"crypto/x509"
-	"encoding/pem"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -30,65 +28,9 @@ func WriteFile(path string, content string) error {
 	return os.WriteFile(path, []byte(content), 0644)
 }
 
-// RunCommand executes a shell command.
-func RunCommand(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	fmt.Printf("Running: %s %s\n", name, strings.Join(args, " "))
-	return cmd.Run()
-}
-
-// GenerateDefaultsConf generates the defaults.conf file.
-func GenerateDefaultsConf(workDir, rootCALiteralName string) error {
-	content := `### Defaults
-default_bits            = 2048                  # RSA key size
-encrypt_key             = yes                   # Protect private key
-utf8                    = yes                   # Input is UTF-8
-string_mask             = utf8only              # Emit UTF-8 strings
-prompt                  = no                    # Don't prompt for DN
-cert_opt                = no_header
-subjectKeyIdentifier    = hash
-authorityKeyIdentifier  = keyid:always,issuer:always
-`
-	filename := fmt.Sprintf("%s-defaults.conf", rootCALiteralName)
-	return WriteFile(filepath.Join(workDir, filename), content)
-}
-
 // GetRootCALiteralName converts a domain name to a literal name (e.g., runlocal.dev -> runlocal-dev).
 func GetRootCALiteralName(domain string) string {
 	return strings.ReplaceAll(domain, ".", "-")
-}
-
-// ReadFile reads the content of a file.
-func ReadFile(path string) ([]byte, error) {
-	return os.ReadFile(path)
-}
-
-// CleanPEMFile keeps only the PEM blocks in a file, removing any text outside.
-func CleanPEMFile(path string) error {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-
-	lines := strings.Split(string(content), "\n")
-	var newLines []string
-	inBlock := false
-
-	for _, line := range lines {
-		if strings.Contains(line, "-----BEGIN CERTIFICATE-----") {
-			inBlock = true
-		}
-		if inBlock {
-			newLines = append(newLines, line)
-		}
-		if strings.Contains(line, "-----END CERTIFICATE-----") {
-			inBlock = false
-		}
-	}
-
-	return os.WriteFile(path, []byte(strings.Join(newLines, "\n")), 0644)
 }
 
 // DirectoryExists checks if a directory exists.
@@ -132,15 +74,7 @@ func ListDirectories(path string) ([]string, error) {
 
 // GetCertExpiry parses a PEM certificate file and returns its expiry time and days remaining.
 func GetCertExpiry(certPath string) (time.Time, int, error) {
-	data, err := os.ReadFile(certPath)
-	if err != nil {
-		return time.Time{}, 0, err
-	}
-	block, _ := pem.Decode(data)
-	if block == nil {
-		return time.Time{}, 0, fmt.Errorf("failed to decode PEM in %s", certPath)
-	}
-	cert, err := x509.ParseCertificate(block.Bytes)
+	cert, err := LoadCert(certPath)
 	if err != nil {
 		return time.Time{}, 0, err
 	}
@@ -150,22 +84,12 @@ func GetCertExpiry(certPath string) (time.Time, int, error) {
 
 // VerifyRootCert verifies that the root CA cert at rootCACertPath is a valid self-signed certificate.
 func VerifyRootCert(rootCACertPath string) error {
-	data, err := os.ReadFile(rootCACertPath)
-	if err != nil {
-		return err
-	}
-	block, _ := pem.Decode(data)
-	if block == nil {
-		return fmt.Errorf("failed to decode PEM in %s", rootCACertPath)
-	}
-	cert, err := x509.ParseCertificate(block.Bytes)
+	cert, err := LoadCert(rootCACertPath)
 	if err != nil {
 		return fmt.Errorf("root CA cert: %w", err)
 	}
-
 	roots := x509.NewCertPool()
 	roots.AddCert(cert)
-
 	_, err = cert.Verify(x509.VerifyOptions{
 		Roots:     roots,
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
@@ -176,30 +100,16 @@ func VerifyRootCert(rootCACertPath string) error {
 // VerifyIntermediateCert verifies that the intermediate CA cert at intermediateCertPath
 // was signed by the root CA at rootCACertPath.
 func VerifyIntermediateCert(intermediateCertPath, rootCACertPath string) error {
-	loadCert := func(path string) (*x509.Certificate, error) {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil, err
-		}
-		block, _ := pem.Decode(data)
-		if block == nil {
-			return nil, fmt.Errorf("failed to decode PEM in %s", path)
-		}
-		return x509.ParseCertificate(block.Bytes)
-	}
-
-	intermediateCert, err := loadCert(intermediateCertPath)
+	intermediateCert, err := LoadCert(intermediateCertPath)
 	if err != nil {
 		return fmt.Errorf("intermediate cert: %w", err)
 	}
-	rootCACert, err := loadCert(rootCACertPath)
+	rootCACert, err := LoadCert(rootCACertPath)
 	if err != nil {
 		return fmt.Errorf("root CA cert: %w", err)
 	}
-
 	roots := x509.NewCertPool()
 	roots.AddCert(rootCACert)
-
 	_, err = intermediateCert.Verify(x509.VerifyOptions{
 		Roots:     roots,
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
@@ -212,37 +122,29 @@ func VerifyIntermediateCert(intermediateCertPath, rootCACertPath string) error {
 // CA at rootCACertPath. keyUsages specifies the expected extended key usages
 // (e.g. x509.ExtKeyUsageServerAuth or x509.ExtKeyUsageClientAuth).
 func VerifyLeafCert(leafCertPath, intermediateCertPath, rootCACertPath string, keyUsages []x509.ExtKeyUsage) error {
-	loadCert := func(path string) (*x509.Certificate, error) {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil, err
-		}
-		block, _ := pem.Decode(data)
-		if block == nil {
-			return nil, fmt.Errorf("failed to decode PEM in %s", path)
-		}
-		return x509.ParseCertificate(block.Bytes)
-	}
-
-	leafCert, err := loadCert(leafCertPath)
+	leafCert, err := LoadCert(leafCertPath)
 	if err != nil {
 		return fmt.Errorf("leaf cert: %w", err)
 	}
-	intermediateCert, err := loadCert(intermediateCertPath)
+	intermediateCert, err := LoadCert(intermediateCertPath)
 	if err != nil {
 		return fmt.Errorf("intermediate cert: %w", err)
 	}
-	rootCACert, err := loadCert(rootCACertPath)
+	rootCACert, err := LoadCert(rootCACertPath)
 	if err != nil {
 		return fmt.Errorf("root CA cert: %w", err)
 	}
+	return VerifyChain(leafCert, intermediateCert, rootCACert, keyUsages)
+}
 
+// VerifyChain verifies a leaf against its intermediate and root, including the
+// name constraints any of them carry.
+func VerifyChain(leaf, intermediate, root *x509.Certificate, keyUsages []x509.ExtKeyUsage) error {
 	roots := x509.NewCertPool()
-	roots.AddCert(rootCACert)
+	roots.AddCert(root)
 	intermediates := x509.NewCertPool()
-	intermediates.AddCert(intermediateCert)
-
-	_, err = leafCert.Verify(x509.VerifyOptions{
+	intermediates.AddCert(intermediate)
+	_, err := leaf.Verify(x509.VerifyOptions{
 		Roots:         roots,
 		Intermediates: intermediates,
 		KeyUsages:     keyUsages,
@@ -250,23 +152,56 @@ func VerifyLeafCert(leafCertPath, intermediateCertPath, rootCACertPath string, k
 	return err
 }
 
-// BuildSANSection generates an openssl `[ sectionName ]` block of subjectAltName
-// entries. Each input may carry an explicit type prefix (`DNS:`, `IP:`, `email:`,
-// `URI:`); bare values are classified as IP when parseable, otherwise DNS.
-// Counters are tracked per type to satisfy openssl's numbered key format
-// (DNS.1, DNS.2, IP.1, ...).
-func BuildSANSection(sectionName string, sans []string) (string, error) {
-	counters := map[string]int{}
-	var lines []string
-	for _, raw := range sans {
+// SANs holds typed Subject Alternative Names.
+type SANs struct {
+	DNS    []string
+	IPs    []net.IP
+	Emails []string
+	URIs   []*url.URL
+}
+
+// ParseSANs classifies --san values. Each may carry an explicit type prefix
+// (`DNS:`, `IP:`, `email:`, `URI:`, any case); bare values are classified as IP
+// when parseable, otherwise DNS. Duplicates are dropped.
+func ParseSANs(values []string) (SANs, error) {
+	var s SANs
+	seen := map[string]bool{}
+	for _, raw := range values {
 		kind, value, err := classifySAN(raw)
 		if err != nil {
-			return "", err
+			return SANs{}, err
 		}
-		counters[kind]++
-		lines = append(lines, fmt.Sprintf("%s.%d = %s", kind, counters[kind], value))
+		if key := kind + ":" + value; seen[key] {
+			continue
+		} else {
+			seen[key] = true
+		}
+		switch kind {
+		case "DNS":
+			s.DNS = append(s.DNS, value)
+		case "IP":
+			s.IPs = append(s.IPs, net.ParseIP(value))
+		case "email":
+			s.Emails = append(s.Emails, value)
+		case "URI":
+			u, err := url.Parse(value)
+			if err != nil || u.Scheme == "" {
+				return SANs{}, fmt.Errorf("invalid URI in SAN %q: want an absolute URI such as spiffe://example/svc", raw)
+			}
+			s.URIs = append(s.URIs, u)
+		}
 	}
-	return fmt.Sprintf("[ %s ]\n%s\n", sectionName, strings.Join(lines, "\n")), nil
+	return s, nil
+}
+
+// SANsFromCSR returns the Subject Alternative Names a request carries.
+func SANsFromCSR(csr *x509.CertificateRequest) SANs {
+	return SANs{DNS: csr.DNSNames, IPs: csr.IPAddresses, Emails: csr.EmailAddresses, URIs: csr.URIs}
+}
+
+// Count returns the number of names.
+func (s SANs) Count() int {
+	return len(s.DNS) + len(s.IPs) + len(s.Emails) + len(s.URIs)
 }
 
 func classifySAN(s string) (string, string, error) {

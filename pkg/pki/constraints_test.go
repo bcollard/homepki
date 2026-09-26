@@ -3,51 +3,70 @@ package pki
 import (
 	"crypto/x509"
 	"fmt"
+	"reflect"
 	"testing"
 )
 
-func TestNameConstraintsExt(t *testing.T) {
-	cases := []struct {
-		in   []string
-		want string
-	}{
-		{nil, ""},
-		{[]string{"permitted;DNS:.klimax.internal"}, "critical,permitted;DNS:.klimax.internal"},
-		{[]string{"DNS:klimax.internal"}, "critical,permitted;DNS:klimax.internal"},
-		{[]string{"Excluded;dns:bad.klimax.internal"}, "critical,excluded;DNS:bad.klimax.internal"},
-		{[]string{"permitted;IP:10.0.0.0/8"}, "critical,permitted;IP:10.0.0.0/255.0.0.0"},
-		{[]string{"permitted;IP:192.168.0.0/255.255.0.0"}, "critical,permitted;IP:192.168.0.0/255.255.0.0"},
-		{[]string{"permitted;IP:fd00::/8"}, "critical,permitted;IP:fd00::/ff00::"},
-		{
-			[]string{"permitted;DNS:.klimax.internal", "permitted;email:.klimax.internal"},
-			"critical,permitted;DNS:.klimax.internal,permitted;email:.klimax.internal",
-		},
+func TestParseNameConstraints(t *testing.T) {
+	nc, err := ParseNameConstraints([]string{
+		"permitted;DNS:.klimax.internal",
+		"DNS:klimax.test",
+		"Excluded;dns:bad.klimax.internal",
+		"permitted;IP:10.1.2.3/8",
+		"permitted;IP:192.168.0.0/255.255.0.0",
+		"excluded;IP:fd00::/8",
+		"permitted;email:.klimax.internal",
+		"excluded;URI:evil.klimax.internal",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	for _, c := range cases {
-		got, err := NameConstraintsExt(c.in)
-		if err != nil {
-			t.Errorf("NameConstraintsExt(%q): unexpected error %v", c.in, err)
-			continue
-		}
-		if got != c.want {
-			t.Errorf("NameConstraintsExt(%q) = %q, want %q", c.in, got, c.want)
-		}
+	if want := []string{".klimax.internal", "klimax.test"}; !reflect.DeepEqual(nc.PermittedDNS, want) {
+		t.Errorf("PermittedDNS = %q, want %q", nc.PermittedDNS, want)
+	}
+	if want := []string{"bad.klimax.internal"}; !reflect.DeepEqual(nc.ExcludedDNS, want) {
+		t.Errorf("ExcludedDNS = %q, want %q", nc.ExcludedDNS, want)
+	}
+	var ips []string
+	for _, n := range nc.PermittedIPs {
+		ips = append(ips, n.String())
+	}
+	if want := []string{"10.0.0.0/8", "192.168.0.0/16"}; !reflect.DeepEqual(ips, want) {
+		t.Errorf("PermittedIPs = %q, want %q", ips, want)
+	}
+	if len(nc.ExcludedIPs) != 1 || nc.ExcludedIPs[0].String() != "fd00::/8" {
+		t.Errorf("ExcludedIPs = %v, want [fd00::/8]", nc.ExcludedIPs)
+	}
+	if len(nc.PermittedIPs[0].IP) != 4 {
+		t.Errorf("IPv4 range stored as %d bytes, want 4", len(nc.PermittedIPs[0].IP))
+	}
+	if !reflect.DeepEqual(nc.PermittedEmails, []string{".klimax.internal"}) || !reflect.DeepEqual(nc.ExcludedURIs, []string{"evil.klimax.internal"}) {
+		t.Errorf("email/URI subtrees not parsed: %+v", nc)
+	}
+	if nc.Empty() {
+		t.Error("Empty() = true")
+	}
+
+	var tmpl x509.Certificate
+	nc.apply(&tmpl)
+	if !tmpl.PermittedDNSDomainsCritical || len(tmpl.PermittedDNSDomains) != 2 || len(tmpl.ExcludedIPRanges) != 1 {
+		t.Errorf("apply did not copy the constraints: %+v", tmpl)
 	}
 }
 
-func TestNameConstraintsExtRejects(t *testing.T) {
+func TestParseNameConstraintsRejects(t *testing.T) {
 	for _, in := range []string{
 		"allowed;DNS:.klimax.internal",
 		"permitted;.klimax.internal",
 		"permitted;DNS:",
-		"permitted;RID:1.2.3",
+		"permitted;dirName:CN=x",
 		"permitted;IP:10.0.0.0",
 		"permitted;IP:10.0.0.0/33",
 		"permitted;IP:10.0.0.0/ffff::",
-		"permitted;DNS:a.internal,b.internal",
+		"permitted;IP:10.0.0.0/255.0.255.0",
 	} {
-		if _, err := NameConstraintsExt([]string{in}); err == nil {
-			t.Errorf("NameConstraintsExt(%q): expected an error", in)
+		if _, err := ParseNameConstraints([]string{in}); err == nil {
+			t.Errorf("ParseNameConstraints(%q): expected an error", in)
 		}
 	}
 }
@@ -68,7 +87,11 @@ func TestPermittedDNSMismatch(t *testing.T) {
 		{[]string{"permitted;DNS:.other.internal", "DNS:.KLIMAX.internal"}, "a.klimax.internal", false},
 	}
 	for _, c := range cases {
-		if got := PermittedDNSMismatch(c.constraints, c.name); got != c.want {
+		nc, err := ParseNameConstraints(c.constraints)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := nc.PermittedDNSMismatch(c.name); got != c.want {
 			t.Errorf("PermittedDNSMismatch(%q, %q) = %v, want %v", c.constraints, c.name, got, c.want)
 		}
 	}

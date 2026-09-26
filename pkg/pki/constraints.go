@@ -9,38 +9,30 @@ import (
 	"strings"
 )
 
-// nameConstraintTypes maps the accepted name types (case-insensitive) to
-// openssl's spelling.
-var nameConstraintTypes = map[string]string{
-	"dns":     "DNS",
-	"ip":      "IP",
-	"email":   "email",
-	"uri":     "URI",
-	"dirname": "dirName",
+// NameConstraints is the parsed form of the --name-constraint values given to a
+// CA. Each name type holds its own permitted and excluded subtrees.
+type NameConstraints struct {
+	PermittedDNS, ExcludedDNS       []string
+	PermittedIPs, ExcludedIPs       []*net.IPNet
+	PermittedEmails, ExcludedEmails []string
+	PermittedURIs, ExcludedURIs     []string
 }
 
-// NameConstraintsExt turns --name-constraint values into the value of an
-// openssl `nameConstraints` extension line, marked critical. Each value uses
-// openssl's syntax, `permitted;DNS:.example.internal` or
-// `excluded;IP:10.0.0.0/255.0.0.0`; the `permitted;` prefix may be omitted.
-// IP ranges also accept CIDR notation (10.0.0.0/8), which is converted to the
-// address/netmask form openssl requires. Returns "" when there is nothing to add.
-func NameConstraintsExt(constraints []string) (string, error) {
-	if len(constraints) == 0 {
-		return "", nil
-	}
-	parts := []string{"critical"}
-	for _, c := range constraints {
-		norm, err := normalizeNameConstraint(c)
-		if err != nil {
-			return "", err
+// ParseNameConstraints parses --name-constraint values written in openssl's
+// syntax, `permitted;DNS:.example.internal` or `excluded;IP:10.0.0.0/8`. The
+// `permitted;` prefix may be omitted. Types are DNS, IP, email and URI; IP
+// ranges take CIDR notation or an address/netmask pair.
+func ParseNameConstraints(values []string) (NameConstraints, error) {
+	var nc NameConstraints
+	for _, v := range values {
+		if err := nc.add(v); err != nil {
+			return NameConstraints{}, err
 		}
-		parts = append(parts, norm)
 	}
-	return strings.Join(parts, ","), nil
+	return nc, nil
 }
 
-func normalizeNameConstraint(c string) (string, error) {
+func (nc *NameConstraints) add(c string) error {
 	raw := strings.TrimSpace(c)
 	subtree := "permitted"
 	if kind, rest, ok := strings.Cut(raw, ";"); ok {
@@ -48,79 +40,113 @@ func normalizeNameConstraint(c string) (string, error) {
 		raw = strings.TrimSpace(rest)
 	}
 	if subtree != "permitted" && subtree != "excluded" {
-		return "", fmt.Errorf("name constraint %q: subtree must be permitted or excluded, got %q", c, subtree)
+		return fmt.Errorf("name constraint %q: subtree must be permitted or excluded, got %q", c, subtree)
 	}
+	permitted := subtree == "permitted"
 
 	typ, value, ok := strings.Cut(raw, ":")
+	value = strings.TrimSpace(value)
 	if !ok || value == "" {
-		return "", fmt.Errorf("name constraint %q: expected [permitted|excluded;]TYPE:value, e.g. permitted;DNS:.example.internal", c)
+		return fmt.Errorf("name constraint %q: expected [permitted|excluded;]TYPE:value, e.g. permitted;DNS:.example.internal", c)
 	}
-	name, known := nameConstraintTypes[strings.ToLower(typ)]
-	if !known {
-		return "", fmt.Errorf("name constraint %q: type must be one of DNS, IP, email, URI, dirName, got %q", c, typ)
-	}
-	if name == "IP" {
-		ipRange, err := ipConstraintRange(value)
-		if err != nil {
-			return "", fmt.Errorf("name constraint %q: %w", c, err)
+
+	pick := func(p, e *[]string) {
+		if permitted {
+			*p = append(*p, value)
+		} else {
+			*e = append(*e, value)
 		}
-		value = ipRange
 	}
-	if strings.Contains(value, ",") {
-		return "", fmt.Errorf("name constraint %q: value must not contain a comma", c)
+	switch strings.ToLower(typ) {
+	case "dns":
+		pick(&nc.PermittedDNS, &nc.ExcludedDNS)
+	case "email":
+		pick(&nc.PermittedEmails, &nc.ExcludedEmails)
+	case "uri":
+		pick(&nc.PermittedURIs, &nc.ExcludedURIs)
+	case "ip":
+		ipNet, err := parseIPConstraint(value)
+		if err != nil {
+			return fmt.Errorf("name constraint %q: %w", c, err)
+		}
+		if permitted {
+			nc.PermittedIPs = append(nc.PermittedIPs, ipNet)
+		} else {
+			nc.ExcludedIPs = append(nc.ExcludedIPs, ipNet)
+		}
+	default:
+		return fmt.Errorf("name constraint %q: type must be one of DNS, IP, email, URI, got %q", c, typ)
 	}
-	return fmt.Sprintf("%s;%s:%s", subtree, name, value), nil
+	return nil
 }
 
-// ipConstraintRange validates an IP name constraint and returns it in openssl's
-// address/netmask form. Both 10.0.0.0/8 and 10.0.0.0/255.0.0.0 are accepted.
-func ipConstraintRange(value string) (string, error) {
+// parseIPConstraint accepts 10.0.0.0/8 or 10.0.0.0/255.0.0.0.
+func parseIPConstraint(value string) (*net.IPNet, error) {
 	addr, mask, ok := strings.Cut(value, "/")
 	if !ok {
-		return "", fmt.Errorf("IP constraint needs a range, e.g. 10.0.0.0/8 or 10.0.0.0/255.0.0.0")
+		return nil, fmt.Errorf("IP constraint needs a range, e.g. 10.0.0.0/8 or 10.0.0.0/255.0.0.0")
 	}
 	ip := net.ParseIP(addr)
 	if ip == nil {
-		return "", fmt.Errorf("invalid IP address %q", addr)
+		return nil, fmt.Errorf("invalid IP address %q", addr)
 	}
 	bits := 8 * net.IPv6len
-	if ip.To4() != nil {
-		bits = 8 * net.IPv4len
+	if v4 := ip.To4(); v4 != nil {
+		ip, bits = v4, 8*net.IPv4len
 	}
+
+	var ipMask net.IPMask
 	if prefix, err := strconv.Atoi(mask); err == nil {
 		if prefix < 0 || prefix > bits {
-			return "", fmt.Errorf("prefix length /%d out of range for %s", prefix, addr)
+			return nil, fmt.Errorf("prefix length /%d out of range for %s", prefix, addr)
 		}
-		return fmt.Sprintf("%s/%s", addr, net.IP(net.CIDRMask(prefix, bits))), nil
+		ipMask = net.CIDRMask(prefix, bits)
+	} else {
+		m := net.ParseIP(mask)
+		if m == nil || (m.To4() != nil) != (bits == 8*net.IPv4len) {
+			return nil, fmt.Errorf("invalid netmask %q for %s", mask, addr)
+		}
+		if v4 := m.To4(); v4 != nil {
+			m = v4
+		}
+		ipMask = net.IPMask(m)
+		if ones, size := ipMask.Size(); ones == 0 && size == 0 {
+			return nil, fmt.Errorf("netmask %q is not contiguous", mask)
+		}
 	}
-	m := net.ParseIP(mask)
-	if m == nil || (m.To4() != nil) != (ip.To4() != nil) {
-		return "", fmt.Errorf("invalid netmask %q for %s", mask, addr)
+	return &net.IPNet{IP: ip.Mask(ipMask), Mask: ipMask}, nil
+}
+
+// Empty reports whether no constraint was given.
+func (nc NameConstraints) Empty() bool {
+	return len(nc.PermittedDNS)+len(nc.ExcludedDNS)+len(nc.PermittedIPs)+len(nc.ExcludedIPs)+
+		len(nc.PermittedEmails)+len(nc.ExcludedEmails)+len(nc.PermittedURIs)+len(nc.ExcludedURIs) == 0
+}
+
+// apply copies the constraints into a certificate template and marks the
+// extension critical, as RFC 5280 requires.
+func (nc NameConstraints) apply(tmpl *x509.Certificate) {
+	if nc.Empty() {
+		return
 	}
-	return value, nil
+	tmpl.PermittedDNSDomainsCritical = true
+	tmpl.PermittedDNSDomains, tmpl.ExcludedDNSDomains = nc.PermittedDNS, nc.ExcludedDNS
+	tmpl.PermittedIPRanges, tmpl.ExcludedIPRanges = nc.PermittedIPs, nc.ExcludedIPs
+	tmpl.PermittedEmailAddresses, tmpl.ExcludedEmailAddresses = nc.PermittedEmails, nc.ExcludedEmails
+	tmpl.PermittedURIDomains, tmpl.ExcludedURIDomains = nc.PermittedURIs, nc.ExcludedURIs
 }
 
 // PermittedDNSMismatch reports whether name falls outside every permitted DNS
-// subtree in constraints. It returns false when there are no permitted DNS
-// subtrees, since DNS names are then unconstrained. Matching follows openssl
-// and Go: `.example.internal` matches subdomains only, `example.internal`
-// matches the domain and its subdomains.
-func PermittedDNSMismatch(constraints []string, name string) bool {
-	name = strings.ToLower(name)
-	var permitted []string
-	for _, c := range constraints {
-		norm, err := normalizeNameConstraint(c)
-		if err != nil {
-			continue
-		}
-		if dns, ok := strings.CutPrefix(norm, "permitted;DNS:"); ok {
-			permitted = append(permitted, strings.ToLower(dns))
-		}
-	}
-	if len(permitted) == 0 {
+// subtree. It returns false when there are no permitted DNS subtrees, since DNS
+// names are then unconstrained. `.example.internal` matches subdomains only,
+// `example.internal` matches the domain and its subdomains, as in crypto/x509.
+func (nc NameConstraints) PermittedDNSMismatch(name string) bool {
+	if len(nc.PermittedDNS) == 0 {
 		return false
 	}
-	for _, p := range permitted {
+	name = strings.ToLower(name)
+	for _, p := range nc.PermittedDNS {
+		p = strings.ToLower(p)
 		if strings.HasPrefix(p, ".") {
 			if strings.HasSuffix(name, p) {
 				return false

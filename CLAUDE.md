@@ -23,12 +23,14 @@ cmd/
   client_cert.go           # client-cert generate + list
   sign.go                  # sign (external CSRs)
   trust.go                 # trust install/uninstall/status (macOS only)
-  paths.go                 # shared --force / --key-type flags and helpers
+  leaf.go                  # generateLeaf: shared server-cert/client-cert issuance
+  paths.go                 # shared flags, caFiles (CA cert/key locations), helpers
   skill.go                 # skill install + path; SetSkill() injection point
-pkg/pki/pki.go             # All PKI helpers (no cobra dependencies)
-pkg/pki/keys.go            # --key-type -> openssl key generation args
+pkg/pki/pki.go             # file helpers, chain verification, SAN parsing (no cobra dependencies)
+pkg/pki/certs.go           # certificate issuance with crypto/x509
+pkg/pki/keys.go            # --key-type -> key generation, PKCS#8 PEM read/write
+pkg/pki/constraints.go     # --name-constraint parsing
 pkg/pki/csr.go             # CSR loading + subject policy validation
-pkg/pki/db.go              # index.db row removal (makes re-issue possible)
 pkg/pki/trust.go           # macOS security(1) command construction
 docs/                      # GitHub Pages site (see below)
 ```
@@ -60,44 +62,35 @@ Default root: `~/.homepki` (overridable via `--workdir` flag or `HOMEPKI_WORKDIR
 ```
 ~/.homepki/
 └── {rootCALiteralName}/           # domain with dots replaced by dashes, e.g. runlocal-dev
-    ├── {rootCALiteralName}-defaults.conf
     ├── ca/
-    │   ├── {name}.conf
     │   ├── {name}-root-ca.crt
-    │   ├── private/{name}-root-ca.key
-    │   └── db/
+    │   └── private/{name}-root-ca.key
     └── {intermediateCAName}/
-        ├── {name}.conf
         ├── {name}-intermediate-ca.crt
         ├── {name}-intermediate-ca-chain.crt
         ├── private/{name}-intermediate-ca.key
-        ├── db/
-        ├── server-tls/
-        │   ├── {server}.conf
-        │   ├── {server}.crt
-        │   └── {server}.key
-        └── client-tls/
-            ├── {client}.conf
-            ├── {client}.crt
-            └── {client}.key
+        ├── server-tls/{server}.crt, {server}.key
+        └── client-tls/{client}.crt, {client}.key
 ```
+
+Trees created before 0.7.0 also contain openssl `.conf`/`.csr` files, `db/` and numbered `.pem` copies. They are ignored; `--force` on a tier removes that tier's leftovers (`removeOpenSSLLeftovers`).
 
 `GetRootCALiteralName(domain)` converts dots to dashes (e.g. `runlocal.dev` → `runlocal-dev`).
 
 ## Overwrite Protection
 
-Generate commands refuse to overwrite existing material and exit non-zero; `--force` replaces it. For a leaf, `--force` also removes the subject's row from the intermediate's `index.db` (`pki.RemoveIndexEntry`) — without that, `openssl ca` refuses to sign a second certificate for the same subject. `cmd/paths.go` holds the shared `--force`/`--key-type` flag variables and the `replaceLeaf` helper.
+Generate commands refuse to overwrite existing material and exit non-zero; `--force` replaces it. There is no CA database, so re-issuing a subject needs nothing beyond overwriting its files. `cmd/paths.go` holds the shared `--force`/`--key-type`/`--name-constraint` flag variables.
 
 `rootCmd.PersistentPreRun` sets `SilenceUsage`, so runtime errors print on their own while flag errors still show usage.
 
-## Chain Verification
+## Issuance and Chain Verification
 
-All `list` subcommands verify chain of trust using Go's `crypto/x509` (no openssl subprocess):
+No command shells out to `openssl`; the only external command is macOS `security` for `trust`. `pkg/pki/certs.go` issues certificates with `x509.CreateCertificate`: random 128-bit serials, `NotBefore` backdated 5 minutes, signature algorithm left to crypto/x509's default for the issuer key (SHA-256 for RSA/P-256, SHA-384 for P-384, SHA-512 for P-521).
+
+Every issued leaf is checked with `pki.VerifyChain` before anything is written (`checkLeaf` in `cmd/paths.go`), which is what enforces name constraints at issue time. `list` subcommands verify the same way:
 
 - `intermediate-ca list` → `pki.VerifyIntermediateCert(intermediateCert, rootCACert)`
 - `server-cert list` / `client-cert list` → `pki.VerifyLeafCert(leafCert, intermediateCert, rootCACert)`
-
-Output shows `[chain OK]` or `[INVALID chain: <reason>]` per entry.
 
 ## Release
 

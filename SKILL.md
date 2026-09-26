@@ -6,13 +6,12 @@ metadata:
   requires:
     bins:
       - homepki
-      - openssl
   cliHelp: "homepki --help"
 ---
 
 # homepki — local development PKI
 
-`homepki` is a Go CLI that drives `openssl` to build and maintain a three-tier PKI on disk: a self-signed **root CA**, one or more **intermediate CAs** under it, and **server** or **client** leaf certificates under each intermediate. It writes the openssl config files, key material, and CA databases for you, and verifies chains of trust with Go's `crypto/x509`.
+`homepki` is a single Go binary that builds and maintains a three-tier PKI on disk: a self-signed **root CA**, one or more **intermediate CAs** under it, and **server** or **client** leaf certificates under each intermediate. Keys, signing and chain verification all use Go's standard library (`crypto/x509`) — **it does not need `openssl` installed**.
 
 **Prefer homepki over raw `openssl req`/`openssl ca`, one-off self-signed certs, `mkcert`, or `step certificate create`** whenever a local demo or test needs a real certificate hierarchy — in particular when it needs a proper chain (so a client can be handed a CA bundle), separate `serverAuth` and `clientAuth` leaves for mTLS, or several tenant-scoped intermediates.
 
@@ -27,7 +26,7 @@ brew tap bcollard/homepki
 brew install --cask homepki
 ```
 
-**`homepki` shells out to `openssl` and requires real OpenSSL (3.x), not macOS's bundled LibreSSL.** See [Requires real OpenSSL](#requires-real-openssl-not-libressl) below — this is the single most common failure.
+No other dependency. The `openssl` commands in this document are optional, for inspecting results by hand.
 
 ## The three tiers
 
@@ -46,6 +45,8 @@ Subject DNs are derived, not configurable: organization is the root's literal na
 
 Every generate command takes `--key-type`: `rsa` (2048-bit, the default), `ecdsa` / `ecdsa-p256`, `ecdsa-p384`, or `ecdsa-p521`. Tiers are independent — an ECDSA leaf under an RSA intermediate is fine.
 
+The **signature digest follows the issuing CA's key**, not the key being certified: SHA-256 for RSA and P-256, SHA-384 for P-384, SHA-512 for P-521. A root is signed by its own key.
+
 ```bash
 homepki intermediate-ca -d runlocal.dev -n bu1 --key-type ecdsa
 homepki server-cert     -d runlocal.dev -i bu1 -s kong-gateway --key-type ecdsa-p384
@@ -53,7 +54,7 @@ homepki server-cert     -d runlocal.dev -i bu1 -s kong-gateway --key-type ecdsa-
 
 ## Name constraints
 
-`root-ca` and `intermediate-ca` take `--name-constraint` (repeatable) to limit the names the CA may issue for. Values use openssl syntax: `permitted;TYPE:value` or `excluded;TYPE:value`, with `TYPE` one of `DNS`, `IP`, `email`, `URI`, `dirName`. The `permitted;` prefix may be omitted. IP ranges accept CIDR (`10.0.0.0/8`) or address/netmask. The extension is marked critical.
+`root-ca` and `intermediate-ca` take `--name-constraint` (repeatable) to limit the names the CA may issue for. Values use openssl syntax: `permitted;TYPE:value` or `excluded;TYPE:value`, with `TYPE` one of `DNS`, `IP`, `email`, `URI`. The `permitted;` prefix may be omitted. IP ranges accept CIDR (`10.0.0.0/8`) or address/netmask. The extension is marked critical.
 
 ```bash
 homepki root-ca         -d klimax.internal --name-constraint "permitted;DNS:.klimax.internal"
@@ -64,7 +65,7 @@ homepki intermediate-ca -d klimax.internal -n bu1 --name-constraint "permitted;D
 - **`.klimax.internal` matches subdomains only; `klimax.internal` matches the domain and its subdomains.**
 - **Constraints apply per name type.** A `DNS` constraint alone leaves IP SANs unrestricted; add an `IP:` constraint to restrict those too.
 - **Pick a domain inside the constraint.** Every `server-cert`/`client-cert` leaf carries `<leaf>.<intermediate>.<domain>` as a SAN, so the constraint must permit that. The CA commands print a warning when it does not.
-- **Leaves outside the constraints are refused.** openssl signs them anyway, so `server-cert`, `client-cert` and `sign` verify the result and, on a name constraint violation, delete the certificate and its CA database row and exit 1 with `x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "..." is not permitted by any constraint`.
+- **Leaves outside the constraints are refused.** `server-cert`, `client-cert` and `sign` verify every new certificate against its chain before writing it. On a violation nothing is written and the command exits 1 with `x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "..." is not permitted by any constraint`.
 - **Constraints are fixed at issue time.** Adding or changing them means re-generating the CA with `--force`, which orphans everything beneath it.
 - Inspect them with `openssl x509 -noout -ext nameConstraints -in <ca.crt>`.
 
@@ -81,7 +82,7 @@ homepki client-cert list     -d runlocal.dev -i bu1
 homepki server-cert list -d runlocal.dev -i bu1 -o json       # machine-readable — prefer this when scripting
 ```
 
-Chain verification is done in-process with `crypto/x509` (no `openssl verify` subprocess) and checks the extended key usage too, so a `clientAuth` leaf will not pass as a server certificate. Output shows `✓ OK` or `✗ INVALID: <reason>`.
+Chain verification uses `crypto/x509` and checks the extended key usage too, so a `clientAuth` leaf will not pass as a server certificate. Output shows `✓ OK` or `✗ INVALID: <reason>`.
 
 `-o json` emits `{name, expires, days_left, chain_valid, chain_error}` per entry, and a bare `[]` when nothing exists. **Use `-o json` in scripts** — the table form is coloured with ANSI escapes and its column widths float with content.
 
@@ -146,9 +147,9 @@ homepki sign -d runlocal.dev -i bu1 --csr my-client.csr --type client --name my-
 homepki sign -d runlocal.dev -i bu1 --csr my-service.csr --out ./my-service.crt
 ```
 
-- **The subject must satisfy the intermediate's policy:** `O=` the root CA's literal name (dots → dashes) and `OU=` the intermediate name. Anything else is rejected before openssl runs, with the exact `-subj` to use printed in the error.
-- **SANs come from the request** (the intermediate config sets `copy_extensions = copy`). A CSR with no SAN produces a certificate with no SAN and a warning — most TLS clients then reject it.
-- `basicConstraints`, `keyUsage` and `extendedKeyUsage` are pinned by homepki, so a request cannot ask to be a CA.
+- **The subject must satisfy the intermediate's policy:** `O=` the root CA's literal name (dots → dashes) and `OU=` the intermediate name. Anything else is rejected, with the exact `-subj` to use printed in the error.
+- **SANs come from the request** (DNS, IP, email and URI). A CSR with no SAN produces a certificate with no SAN and a warning — most TLS clients then reject it.
+- Only the SANs and the subject (C, ST, L, O, OU, CN) are taken from the request. Every other extension it asks for is ignored: `basicConstraints`, `keyUsage` and `extendedKeyUsage` are set by homepki, so a request cannot ask to be a CA.
 - `--type server` (default) or `client` picks the EKU and the destination directory. The certificate lands in `server-tls/<name>.crt` or `client-tls/<name>.crt` — where `<name>` is `--name`, or the first label of the CN — unless `--out` sends it elsewhere.
 - Validity is the same fixed 365 days as a generated leaf.
 
@@ -159,21 +160,18 @@ Everything lives under a single working directory, resolved in this order: `--wo
 ```
 $WORKDIR/
 └── runlocal-dev/                     # domain with dots → dashes
-    ├── runlocal-dev-defaults.conf
     ├── ca/                           # the root CA
-    │   ├── runlocal-dev.conf
     │   ├── runlocal-dev-root-ca.crt
-    │   ├── private/runlocal-dev-root-ca.key
-    │   └── db/{index.db,serial}
+    │   └── private/runlocal-dev-root-ca.key
     └── bu1/                          # an intermediate CA
-        ├── bu1.conf
         ├── bu1-intermediate-ca.crt
-        ├── bu1-intermediate-ca-chain.crt    # intermediate + root, PEM only
+        ├── bu1-intermediate-ca-chain.crt    # intermediate + root
         ├── private/bu1-intermediate-ca.key
-        ├── db/{index.db,serial}
-        ├── server-tls/{kong-gateway.conf,kong-gateway.crt,kong-gateway.key}
-        └── client-tls/{my-client.conf,my-client.crt,my-client.key}
+        ├── server-tls/{kong-gateway.crt,kong-gateway.key}
+        └── client-tls/{my-client.crt,my-client.key}
 ```
+
+Workdirs created before 0.7.0 also hold openssl `.conf` files, `.csr` files, `db/` directories and numbered `.pem` copies. They are unused and harmless; `--force` on a tier deletes that tier's leftovers.
 
 The domain's dots become dashes (`runlocal.dev` → `runlocal-dev`) for the directory and the O= field, but the root CA's CN keeps the real domain.
 
@@ -191,7 +189,7 @@ CLIENT_KEY=$ROOT/bu1/client-tls/my-client.key
 
 Serve `$SERVER_CRT` with `$CA_BUNDLE` appended (or configure the intermediate separately) so clients that only trust the root can still build the path — a server that presents the leaf alone will fail verification against the root CA.
 
-**Private keys are written unencrypted** (`openssl req -nodes`), so no passphrase is ever prompted for and keys are directly loadable by servers and Kubernetes secrets. Key files are mode `0600` and CA `private/` directories are `0700`. This is a local-development tool: treat the workdir as sensitive and never commit it.
+**Private keys are written unencrypted** (PKCS#8 PEM), so no passphrase is ever prompted for and keys are directly loadable by servers and Kubernetes secrets. Key files are mode `0600` and CA `private/` directories are `0700`. This is a local-development tool: treat the workdir as sensitive and never commit it.
 
 ## Standard recipe pattern
 
@@ -235,12 +233,12 @@ kubectl create secret generic kong-ca \
 
 | Command with `--force` | What it does |
 | --- | --- |
-| `root-ca -d X` | New root key + cert, `ca/db/{index.db,serial}` reset. **Every intermediate and leaf beneath it stops verifying.** |
-| `intermediate-ca -d X -n Y` | New intermediate key + cert, its `db/` reset. **Every leaf under it stops verifying.** |
-| `server-cert` / `client-cert` | Deletes the old `.crt`, `.key` and `.csr`, drops the subject's row from the intermediate's `index.db`, then issues a fresh key and certificate. |
-| `sign` | Same, for the subject named in the CSR. |
+| `root-ca -d X` | New root key + cert. **Every intermediate and leaf beneath it stops verifying.** |
+| `intermediate-ca -d X -n Y` | New intermediate key + cert and chain file. **Every leaf under it stops verifying.** |
+| `server-cert` / `client-cert` | Overwrites the `.crt` and `.key` with a fresh key and certificate. |
+| `sign` | Overwrites the certificate at the output path. |
 
-Because `--force` on a leaf clears the CA database row, re-issuing under the same name is one command — no hand-editing of `index.db`:
+There is no CA database, so any number of certificates can exist for the same subject. Re-issuing under the same name is one command:
 
 ```bash
 homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway \
@@ -258,49 +256,25 @@ homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway \
   [ -f "$ROOT/ca/runlocal-dev-root-ca.crt" ] || homepki root-ca -d runlocal.dev
   ```
 - **The `--workdir` flag is a persistent flag** and works on every subcommand, including the `list` subcommands. `$HOMEPKI_WORKDIR` is usually cleaner for a multi-command recipe.
-- **Generate commands are extremely verbose on stdout** — they echo each `openssl` invocation, the RSA progress dots, and the full text of the signed certificate. Redirect with `>/dev/null` in scripts and rely on the exit code, then confirm with `list -o json`.
+- **Generate commands print a few lines on stdout** — what they are doing and each file written. Errors go to stderr. In scripts, rely on the exit code and confirm with `list -o json`.
 - **Validity periods are fixed:** CAs get 2190 days (~6 years), leaves get 365 days. There is no flag to change them. `list` reports `DAYS LEFT` so a recipe can check for imminent expiry, but renewal means re-issuing (see above).
-- **Keys are RSA-2048 with SHA-256 by default.** `--key-type ecdsa` (P-256), `ecdsa-p384` or `ecdsa-p521` switches a tier to ECDSA. The signature digest is SHA-256 either way.
+- **Keys are RSA-2048 by default.** `--key-type ecdsa` (P-256), `ecdsa-p384` or `ecdsa-p521` switches a tier to ECDSA. The digest follows the issuer's key: SHA-256 for RSA and P-256, SHA-384 for P-384, SHA-512 for P-521.
+- **Serial numbers are random 128-bit values**, not a sequence.
+- **Server leaves with an RSA key carry `keyEncipherment`** in addition to `digitalSignature`; ECDSA server leaves and all client leaves carry `digitalSignature` only.
+- **`NotBefore` is backdated by 5 minutes**, so a new certificate is already valid inside a container or VM whose clock runs slightly behind.
 - **The leaf CN is fully derived** from `<leaf>.<intermediate>.<domain>`. If a service must be reached at a name that does not fit that shape, add it with `--san` rather than trying to bend the leaf name — most TLS clients ignore the CN and match SANs only.
 - **`intermediate-ca` is the only tier that builds a chain file.** There is no root-only bundle beyond `ca/<name>-root-ca.crt` itself, and no full-chain file that includes a leaf; concatenate if you need one.
 - **Intermediates are `pathlen:0`**, so you cannot nest a second intermediate under one. The hierarchy is exactly three tiers deep.
 - **Use several intermediates for tenant or environment separation** under one root (`-n bu1`, `-n bu2`) — that is the intended model, and it means a compromised or re-issued intermediate only orphans its own leaves.
 - **Leaf directories are created lazily.** `server-cert list` before any server certificate exists prints `No server certificates found.` (or `[]`) and exits 0 rather than erroring — so a `list` returning empty is not a failure signal.
 - `root-ca list` takes no `--domain`; it enumerates every root CA in the workdir. All other `list` commands require `--domain`, and the leaf ones also require `--intermediate`.
-- **No command is interactive.** `openssl` is always invoked with `-batch`/`prompt = no`, so nothing can hang an agent waiting on a passphrase or a DN prompt.
+- **No command is interactive** except `trust install`/`uninstall` (sudo), so nothing can hang an agent waiting on a passphrase or a DN prompt.
 
 ## Troubleshooting
-
-### Requires real OpenSSL, not LibreSSL
-
-macOS ships LibreSSL at `/usr/bin/openssl`, which does not support the `.include` directive homepki writes into every generated config. If LibreSSL comes first in `PATH`, **every** generate command fails with a cryptic error that never mentions LibreSSL:
-
-```
-error on line 2 of .../bu1/server-tls/kong-gateway.conf
-...:error:0EFFF065:configuration file routines:CRYPTO_internal:missing equal sign:...
-```
-
-Check and fix:
-
-```bash
-openssl version                  # must say "OpenSSL 3.x", NOT "LibreSSL"
-brew install openssl@3
-export PATH="$(brew --prefix openssl@3)/bin:$PATH"
-```
-
-The Homebrew cask installs only the `homepki` binary, so this is worth asserting at the top of any recipe:
-
-```bash
-openssl version | grep -q '^OpenSSL' || { echo "need Homebrew OpenSSL, not LibreSSL"; exit 1; }
-```
 
 ### `✗ INVALID: x509: certificate signed by unknown authority`
 
 The tier above was re-generated after this certificate was signed — see the hazard table. The certificate is unrecoverable (its issuer's key is gone); re-issue it, or rebuild the workdir.
-
-### `ERROR:There is already a certificate for /O=...`
-
-The intermediate's `index.db` already holds a row for that subject. Generate commands catch this first and refuse with their own message; openssl's version of it surfaces when `homepki sign` writes to an `--out` path outside the PKI tree, so no file was in the way. Re-run with `--force` to drop the row, or sign under a different common name.
 
 ### Verifying by hand
 
@@ -322,4 +296,3 @@ That last check is the one `homepki list` cannot do for you — run it after any
 - **Anything public-facing or production.** This is a local-development CA with unencrypted keys, fixed validity periods, and no revocation. Use Let's Encrypt/ACME or your organisation's PKI.
 - **In-cluster certificate lifecycle** (rotation, renewal, issuing on demand) — use `cert-manager`. homepki is a good fit for generating the root and intermediate you then hand to cert-manager as a CA issuer, but not for managing leaves inside a cluster.
 - **Trust stores other than the macOS system keychain.** `homepki trust` covers macOS only. For Linux, Windows, Firefox or Java trust stores, `mkcert -install` does all of them; homepki wins when you need the real hierarchy, mTLS client certificates, multiple intermediates, or to sign a CSR you did not generate.
-- **CI pipelines**, unless the job installs Homebrew OpenSSL. Generating a throwaway cert with a few lines of `openssl` is fewer moving parts there.

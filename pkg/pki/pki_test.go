@@ -1,31 +1,47 @@
 package pki
 
-import "testing"
+import (
+	"net"
+	"reflect"
+	"testing"
+)
 
-func TestBuildSANSection(t *testing.T) {
-	got, err := BuildSANSection("alt", []string{
+func TestParseSANs(t *testing.T) {
+	got, err := ParseSANs([]string{
 		"gw.bu1.test.local",
 		"kong.local",
 		"192.168.1.10",
 		"IP:::1",
 		"DNS:*.kong.local",
 		"email:admin@kong.local",
-		"URI:https://kong.local/",
+		"URI:spiffe://kong.local/gw",
 		"dns:lowercase.example",
+		"kong.local",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := "[ alt ]\nDNS.1 = gw.bu1.test.local\nDNS.2 = kong.local\nIP.1 = 192.168.1.10\nIP.2 = ::1\nDNS.3 = *.kong.local\nemail.1 = admin@kong.local\nURI.1 = https://kong.local/\nDNS.4 = lowercase.example\n"
-	if got != want {
-		t.Fatalf("mismatch:\nwant:\n%s\ngot:\n%s", want, got)
+	if want := []string{"gw.bu1.test.local", "kong.local", "*.kong.local", "lowercase.example"}; !reflect.DeepEqual(got.DNS, want) {
+		t.Errorf("DNS = %q, want %q", got.DNS, want)
+	}
+	if len(got.IPs) != 2 || !got.IPs[0].Equal(net.ParseIP("192.168.1.10")) || !got.IPs[1].Equal(net.IPv6loopback) {
+		t.Errorf("IPs = %v", got.IPs)
+	}
+	if !reflect.DeepEqual(got.Emails, []string{"admin@kong.local"}) {
+		t.Errorf("Emails = %q", got.Emails)
+	}
+	if len(got.URIs) != 1 || got.URIs[0].String() != "spiffe://kong.local/gw" {
+		t.Errorf("URIs = %v", got.URIs)
+	}
+	if got.Count() != 8 {
+		t.Errorf("Count() = %d, want 8", got.Count())
 	}
 }
 
-func TestBuildSANSectionErrors(t *testing.T) {
-	cases := []string{"", "   ", "IP:not-an-ip", "DNS:"}
+func TestParseSANsErrors(t *testing.T) {
+	cases := []string{"", "   ", "IP:not-an-ip", "DNS:", "URI:no-scheme"}
 	for _, c := range cases {
-		if _, err := BuildSANSection("alt", []string{c}); err == nil {
+		if _, err := ParseSANs([]string{c}); err == nil {
 			t.Errorf("expected error for input %q, got nil", c)
 		}
 	}

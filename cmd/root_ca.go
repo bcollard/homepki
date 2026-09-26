@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"crypto/x509/pkix"
 	"fmt"
 	"path/filepath"
 
@@ -31,12 +32,7 @@ var rootCACmd = &cobra.Command{
 		if rootCADomain == "" {
 			return fmt.Errorf("root CA domain name is required")
 		}
-		keyArgs, err := pki.KeyGenArgs(keyType)
-		if err != nil {
-			return err
-		}
-		ncExt, err := pki.NameConstraintsExt(nameConstraints)
-		if err != nil {
+		if err := pki.ValidateKeyType(keyType); err != nil {
 			return err
 		}
 
@@ -46,123 +42,57 @@ var rootCACmd = &cobra.Command{
 			return err
 		}
 		workDir := filepath.Join(baseDir, rootCALiteralName)
-		rootCADir := filepath.Join(workDir, "ca")
+		files := rootCAFiles(workDir, rootCALiteralName)
 
-		crtPath := filepath.Join(rootCADir, fmt.Sprintf("%s-root-ca.crt", rootCALiteralName))
-		if present := pathsPresent(crtPath); len(present) > 0 {
+		if present := pathsPresent(files.cert); len(present) > 0 {
 			if !forceGenerate {
 				return fmt.Errorf("a Root CA for %s already exists at %s\n\n"+
-					"Re-generating it creates a new key and resets its database, which orphans every "+
+					"Re-generating it creates a new key, which orphans every "+
 					"Intermediate CA and leaf certificate beneath it. Pass --force to replace it anyway",
-					rootCADomain, crtPath)
+					rootCADomain, files.cert)
 			}
 			fmt.Printf("--force: replacing the existing Root CA for %s\n", rootCADomain)
 			fmt.Println("Every Intermediate CA and leaf certificate under it will stop verifying — re-generate them.")
 		}
 
 		fmt.Printf("Initializing Root CA for %s in %s\n", rootCADomain, workDir)
-		warnLeafCNOutsideConstraints(rootCADomain, "")
-
-		// Create directories
-		if err := pki.CreateDirectory(rootCADir); err != nil {
-			return err
-		}
-		if err := pki.CreateDirectory(filepath.Join(rootCADir, "db")); err != nil {
-			return err
-		}
-		if err := pki.CreatePrivateDirectory(filepath.Join(rootCADir, "private")); err != nil {
+		nc, err := parseNameConstraints(rootCADomain, "")
+		if err != nil {
 			return err
 		}
 
-		// Create DB files
-		if err := pki.WriteFile(filepath.Join(rootCADir, "db", "index.db"), ""); err != nil {
+		if err := pki.CreateDirectory(files.dir); err != nil {
 			return err
 		}
-		if err := pki.WriteFile(filepath.Join(rootCADir, "db", "serial"), "1000\n"); err != nil {
-			return err
-		}
-
-		// Generate defaults.conf
-		if err := pki.GenerateDefaultsConf(workDir, rootCALiteralName); err != nil {
+		if err := pki.CreatePrivateDirectory(filepath.Dir(files.key)); err != nil {
 			return err
 		}
 
-		// Generate Root CA config
-		rootCAConfContent := fmt.Sprintf(`# Include defaults
-.include %s/%s-defaults.conf
-
-### ROOT CA
-# used for the root CA CSR
-[ req ]
-distinguished_name      = root_ca_dn                          # DN section
-req_extensions          = root_ca_ext                         # Desired extensions
-
-# used for the root CA CSR
-[ root_ca_dn ]
-organizationName        = %s
-commonName              = %s
-
-# used for the root CA CSR
-[ root_ca_ext ]
-keyUsage                = critical,keyCertSign,cRLSign
-basicConstraints        = critical,CA:true,pathlen:1
-%s
-# used for self-signing the root CA
-# also used when signing intermediate CAs (accounts/organizations)
-[ ca ]
-default_ca              = CA_default                          # The default ca section
-
-[ CA_default ]
-certificate             = %s/%s-root-ca.crt            # The CA cert
-dir                     = %s                                                # Where everything is kept
-private_key             = %s/private/%s-root-ca.key    # The CA private key
-database                = %s/db/index.db                                    # The CA database
-serial                  = %s/db/serial                                      # The current serial number
-policy                  = match_pol                                                     # The CA policy
-new_certs_dir           = %s                                                # New certs will be placed here
-default_md              = sha256                                                        # MD to use
-name_opt                = multiline,-esc_msb,utf8                                       # Subject DN display options
-default_days            = 2190                                                          # How long to certify for
-x509_extensions         = root_ca_ext                                                   # Desired extensions
-
-[ match_pol ]
-countryName             = optional              # Must match 'NO'
-stateOrProvinceName     = optional              # Included if present
-localityName            = optional              # Included if present
-organizationName        = match                 # Must match "%s"
-organizationalUnitName  = optional              # Included if present
-commonName              = supplied              # Must be present
-
-
-# only used when signing intermediate CAs (accounts/organizations)
-[ signing_ca_ext ]
-keyUsage                = critical,keyCertSign,cRLSign
-basicConstraints        = critical,CA:true,pathlen:0
-subjectKeyIdentifier    = hash
-`, workDir, rootCALiteralName, rootCALiteralName, rootCADomain, nameConstraintsLine(ncExt), rootCADir, rootCALiteralName, rootCADir, rootCADir, rootCALiteralName, rootCADir, rootCADir, rootCADir, rootCALiteralName)
-
-		rootCAConfPath := filepath.Join(rootCADir, fmt.Sprintf("%s.conf", rootCALiteralName))
-		if err := pki.WriteFile(rootCAConfPath, rootCAConfContent); err != nil {
+		key, err := pki.GenerateKey(keyType)
+		if err != nil {
+			return err
+		}
+		cert, err := pki.SelfSignRoot(key, pkix.Name{
+			Organization: []string{rootCALiteralName},
+			CommonName:   rootCADomain,
+		}, nc)
+		if err != nil {
+			return err
+		}
+		if err := pki.WriteKey(files.key, key); err != nil {
+			return err
+		}
+		if err := pki.WriteCerts(files.cert, cert); err != nil {
+			return err
+		}
+		if err := removeOpenSSLLeftovers(files.dir,
+			filepath.Join(files.dir, rootCALiteralName+".conf"),
+			filepath.Join(files.dir, rootCALiteralName+"-root-ca.csr"),
+			filepath.Join(workDir, rootCALiteralName+"-defaults.conf")); err != nil {
 			return err
 		}
 
-		// OpenSSL req
-		keyPath := filepath.Join(rootCADir, "private", fmt.Sprintf("%s-root-ca.key", rootCALiteralName))
-		csrPath := filepath.Join(rootCADir, fmt.Sprintf("%s-root-ca.csr", rootCALiteralName))
-		reqArgs := append([]string{"req", "-new", "-nodes", "-sha256"}, keyArgs...)
-		reqArgs = append(reqArgs, "-config", rootCAConfPath, "-keyout", keyPath, "-out", csrPath)
-		if err := pki.RunCommand("openssl", reqArgs...); err != nil {
-			return err
-		}
-
-		// OpenSSL ca selfsign
-		if err := pki.RunCommand("openssl", "ca", "-selfsign", "-batch",
-			"-config", rootCAConfPath,
-			"-in", csrPath,
-			"-out", crtPath, "-certform", "PEM"); err != nil {
-			return err
-		}
-
+		fmt.Printf("Wrote %s\nWrote %s\n", files.key, files.cert)
 		fmt.Println("Root CA generated successfully.")
 		return nil
 	},

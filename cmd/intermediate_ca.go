@@ -1,8 +1,8 @@
 package cmd
 
 import (
+	"crypto/x509/pkix"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/bcollard/homepki/pkg/pki"
@@ -36,12 +36,7 @@ var intermediateCACmd = &cobra.Command{
 		if intermediateCAName == "" {
 			return fmt.Errorf("intermediate CA name is required")
 		}
-		keyArgs, err := pki.KeyGenArgs(keyType)
-		if err != nil {
-			return err
-		}
-		ncExt, err := pki.NameConstraintsExt(nameConstraints)
-		if err != nil {
+		if err := pki.ValidateKeyType(keyType); err != nil {
 			return err
 		}
 
@@ -51,195 +46,74 @@ var intermediateCACmd = &cobra.Command{
 			return err
 		}
 		workDir := filepath.Join(baseDir, rootCALiteralName)
-		rootCADir := filepath.Join(workDir, "ca")
-		intermediateCADir := filepath.Join(workDir, intermediateCAName)
+		rootFiles := rootCAFiles(workDir, rootCALiteralName)
+		files := intermediateCAFiles(workDir, intermediateCAName)
 
-		// Check if Root CA exists
-		if exists, err := pki.DirectoryExists(rootCADir); err != nil {
+		if exists, err := pki.DirectoryExists(rootFiles.dir); err != nil {
 			return err
 		} else if !exists {
-			return fmt.Errorf("root CA directory %s does not exist. Please create the Root CA first", rootCADir)
+			return fmt.Errorf("root CA directory %s does not exist. Please create the Root CA first", rootFiles.dir)
+		}
+		rootCert, rootKey, err := rootFiles.load("Root CA")
+		if err != nil {
+			return err
 		}
 
-		crtPath := filepath.Join(intermediateCADir, fmt.Sprintf("%s-intermediate-ca.crt", intermediateCAName))
-		if present := pathsPresent(crtPath); len(present) > 0 {
+		if present := pathsPresent(files.cert); len(present) > 0 {
 			if !forceGenerate {
 				return fmt.Errorf("an Intermediate CA named %q already exists at %s\n\n"+
-					"Re-generating it creates a new key and resets its database, which orphans every "+
+					"Re-generating it creates a new key, which orphans every "+
 					"leaf certificate beneath it. Pass --force to replace it anyway, or pick another name",
-					intermediateCAName, crtPath)
+					intermediateCAName, files.cert)
 			}
 			fmt.Printf("--force: replacing the existing Intermediate CA %s\n", intermediateCAName)
 			fmt.Println("Every leaf certificate under it will stop verifying — re-generate them.")
 		}
 
 		fmt.Printf("Initializing Intermediate CA %s for %s\n", intermediateCAName, rootCADomain)
-		warnLeafCNOutsideConstraints(rootCADomain, intermediateCAName)
-
-		// Create directories
-		if err := pki.CreateDirectory(intermediateCADir); err != nil {
-			return err
-		}
-		if err := pki.CreateDirectory(filepath.Join(intermediateCADir, "db")); err != nil {
-			return err
-		}
-		if err := pki.CreatePrivateDirectory(filepath.Join(intermediateCADir, "private")); err != nil {
-			return err
-		}
-
-		// Create DB files
-		if err := pki.WriteFile(filepath.Join(intermediateCADir, "db", "index.db"), ""); err != nil {
-			return err
-		}
-		if err := pki.WriteFile(filepath.Join(intermediateCADir, "db", "serial"), "1000\n"); err != nil {
-			return err
-		}
-
-		// Generate Intermediate CA config
-		intermediateCAConfContent := fmt.Sprintf(`# Include defaults
-.include %s/%s-defaults.conf
-
-### TLS CA
-# used for the intermediate CA CSR
-[ req ]
-distinguished_name      = tls_ca_dn                 # DN section
-req_extensions          = tls_ca_ext             # Desired extensions
-
-# used for the intermediate CA CSR
-[ tls_ca_dn ]
-organizationName        = %s
-organizationalUnitName  = %s
-commonName              = %s.%s
-
-# used for the intermediate CA CSR
-[ tls_ca_ext ]
-keyUsage                = critical,keyCertSign,cRLSign
-basicConstraints        = critical,CA:true,pathlen:0
-
-
-# only used when signing leaf certificates (client or server)
-[ ca ]
-default_ca              = CA_default                          # The default ca section
-
-[ CA_default ]
-certificate             = %s/%s-intermediate-ca.crt               # The CA cert
-dir                     = %s                   # Where everything is kept
-private_key             = %s/private/%s-intermediate-ca.key   # The CA private key
-database                = %s/db/index.db           # The CA database
-serial                  = %s/db/serial             # The current serial number
-policy                  = match_pol                     # The CA policy
-new_certs_dir           = %s                       # New certs will be placed here
-default_md              = sha256                              # MD to use
-name_opt                = multiline,-esc_msb,utf8                                       # Subject DN display options
-default_days            = 2190                                # How long to certify for
-x509_extensions         = tls_ca_ext                          # Desired extensions
-copy_extensions         = copy                                # Copy SAN (and other extensions) from the CSR into the signed cert
-
-[ match_pol ]
-countryName             = optional              # Must match 'NO'
-stateOrProvinceName     = optional              # Included if present
-localityName            = optional              # Included if present
-organizationName        = match                 # Must match "%s"
-organizationalUnitName  = match                 # Must match "%s"
-commonName              = supplied              # Must be present
-
-# only used when signing leaf server certificates
-[ server_ext ]
-keyUsage                = critical,digitalSignature,keyEncipherment
-basicConstraints        = CA:false
-extendedKeyUsage        = serverAuth
-subjectKeyIdentifier    = hash
-
-# only used when signing leaf client certificates
-[ client_ext ]
-keyUsage                = critical,digitalSignature
-basicConstraints        = CA:false
-extendedKeyUsage        = clientAuth
-subjectKeyIdentifier    = hash
-`, workDir, rootCALiteralName, rootCALiteralName, intermediateCAName, intermediateCAName, rootCADomain, intermediateCADir, intermediateCAName, intermediateCADir, intermediateCADir, intermediateCAName, intermediateCADir, intermediateCADir, intermediateCADir, rootCALiteralName, intermediateCAName)
-
-		intermediateCAConfPath := filepath.Join(intermediateCADir, fmt.Sprintf("%s.conf", intermediateCAName))
-		if err := pki.WriteFile(intermediateCAConfPath, intermediateCAConfContent); err != nil {
-			return err
-		}
-
-		// OpenSSL req
-		keyPath := filepath.Join(intermediateCADir, "private", fmt.Sprintf("%s-intermediate-ca.key", intermediateCAName))
-		csrPath := filepath.Join(intermediateCADir, fmt.Sprintf("%s-intermediate-ca.csr", intermediateCAName))
-		reqArgs := append([]string{"req", "-new", "-nodes", "-sha256"}, keyArgs...)
-		reqArgs = append(reqArgs, "-config", intermediateCAConfPath, "-keyout", keyPath, "-out", csrPath)
-		if err := pki.RunCommand("openssl", reqArgs...); err != nil {
-			return err
-		}
-
-		// Sign with Root CA
-		rootCAConfPath := filepath.Join(rootCADir, fmt.Sprintf("%s.conf", rootCALiteralName))
-		signArgs := []string{"ca", "-batch", "-config", rootCAConfPath, "-extensions", "signing_ca_ext"}
-		signingExtPath := filepath.Join(intermediateCADir, fmt.Sprintf("%s-signing-ext.conf", intermediateCAName))
-		if ncExt != "" {
-			// The Root CA config's signing_ca_ext is shared by every intermediate, so
-			// per-intermediate name constraints go in an extension file of their own
-			// that replaces it for this signature.
-			if err := pki.WriteFile(signingExtPath, fmt.Sprintf(`# Extensions the Root CA applies when signing %s
-[ signing_ca_ext ]
-keyUsage                = critical,keyCertSign,cRLSign
-basicConstraints        = critical,CA:true,pathlen:0
-subjectKeyIdentifier    = hash
-%s`, intermediateCAName, nameConstraintsLine(ncExt))); err != nil {
-				return err
-			}
-			signArgs = append(signArgs, "-extfile", signingExtPath)
-		} else if err := os.Remove(signingExtPath); err != nil && !os.IsNotExist(err) {
-			// A leftover file from a --force re-generation would misdescribe this CA.
-			return err
-		}
-		signArgs = append(signArgs, "-in", csrPath, "-out", crtPath)
-		if err := pki.RunCommand("openssl", signArgs...); err != nil {
-			return err
-		}
-
-		// Create chain
-		rootCACrtPath := filepath.Join(rootCADir, fmt.Sprintf("%s-root-ca.crt", rootCALiteralName))
-		chainPath := filepath.Join(intermediateCADir, fmt.Sprintf("%s-intermediate-ca-chain.crt", intermediateCAName))
-
-		// Concatenate intermediate and root certs
-		// We can use cat command or read/write files in Go. Using cat via shell is easier if we want to be lazy, but Go is better.
-		// Let's use Go.
-		// Actually, the shell script uses `cat ... > ...` and then `sed` to clean it up.
-		// The sed command: sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p'
-		// This is to remove text before/after the PEM block if any. OpenSSL usually outputs text info in the cert file unless -notext is used (which I don't see in the script, wait, `cert_opt = no_header` in defaults might help but `openssl ca` adds text by default).
-		// The script does `openssl ca ... -out ...`.
-		// Let's just run the cat command for now, or implement it in Go.
-
-		// Reading files
-		intermediateCrt, err := pki.ReadFile(crtPath)
-		if err != nil {
-			return err
-		}
-		rootCrt, err := pki.ReadFile(rootCACrtPath)
+		nc, err := parseNameConstraints(rootCADomain, intermediateCAName)
 		if err != nil {
 			return err
 		}
 
-		// Simple concatenation
-		chainContent := string(intermediateCrt) + string(rootCrt)
-
-		// Write chain
-		if err := pki.WriteFile(chainPath, chainContent); err != nil {
+		if err := pki.CreateDirectory(files.dir); err != nil {
+			return err
+		}
+		if err := pki.CreatePrivateDirectory(filepath.Dir(files.key)); err != nil {
 			return err
 		}
 
-		// The sed part in the script seems to be cleaning up the chain file.
-		// "Suppress the certificate info from the chain"
-		// I'll implement a helper to clean PEM files if needed, but for now let's assume the user wants the chain.
-		// If I want to replicate the sed behavior:
-		// sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p'
-		// This keeps only the PEM blocks.
-
-		if err := pki.CleanPEMFile(chainPath); err != nil {
+		key, err := pki.GenerateKey(keyType)
+		if err != nil {
+			return err
+		}
+		cert, err := pki.SignIntermediate(key.Public(), pkix.Name{
+			Organization:       []string{rootCALiteralName},
+			OrganizationalUnit: []string{intermediateCAName},
+			CommonName:         fmt.Sprintf("%s.%s", intermediateCAName, rootCADomain),
+		}, nc, rootCert, rootKey)
+		if err != nil {
 			return err
 		}
 
+		chainPath := filepath.Join(files.dir, fmt.Sprintf("%s-intermediate-ca-chain.crt", intermediateCAName))
+		if err := pki.WriteKey(files.key, key); err != nil {
+			return err
+		}
+		if err := pki.WriteCerts(files.cert, cert); err != nil {
+			return err
+		}
+		if err := pki.WriteCerts(chainPath, cert, rootCert); err != nil {
+			return err
+		}
+		if err := removeOpenSSLLeftovers(files.dir,
+			filepath.Join(files.dir, intermediateCAName+".conf"),
+			filepath.Join(files.dir, intermediateCAName+"-intermediate-ca.csr"),
+			filepath.Join(files.dir, intermediateCAName+"-signing-ext.conf")); err != nil {
+			return err
+		}
+
+		fmt.Printf("Wrote %s\nWrote %s\nWrote %s\n", files.key, files.cert, chainPath)
 		fmt.Println("Intermediate CA generated successfully.")
 		return nil
 	},

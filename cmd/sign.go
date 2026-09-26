@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"crypto/x509/pkix"
 	"fmt"
 	"path/filepath"
 
@@ -26,8 +27,7 @@ certificate comes out. Subject Alternative Names are taken from the request.
 
 The Intermediate CA's policy requires the request's subject to carry the Root
 CA's organization and the intermediate's organizational unit, with any common
-name. homepki checks that before calling openssl and prints the subject you
-need.`,
+name. A request that does not fit is rejected with the subject you need.`,
 	Example: `  # Sign a request as a server certificate
   homepki sign --domain runlocal.dev --intermediate bu1 --csr ./my-service.csr
 
@@ -49,12 +49,13 @@ need.`,
 			return fmt.Errorf("a certificate signing request is required (--csr)")
 		}
 
-		var extension, leafSubdir, useVerb string
+		var kind pki.LeafKind
+		var leafSubdir, useVerb string
 		switch signType {
 		case "server":
-			extension, leafSubdir, useVerb = "server_ext", "server-tls", "Serve"
+			kind, leafSubdir, useVerb = pki.ServerLeaf, "server-tls", "Serve"
 		case "client":
-			extension, leafSubdir, useVerb = "client_ext", "client-tls", "Present"
+			kind, leafSubdir, useVerb = pki.ClientLeaf, "client-tls", "Present"
 		default:
 			return fmt.Errorf("--type must be server or client, got %q", signType)
 		}
@@ -65,13 +66,14 @@ need.`,
 			return err
 		}
 		workDir := filepath.Join(baseDir, rootCALiteralName)
-		intermediateCADir := filepath.Join(workDir, intermediateCAName)
-
-		intermediateCACrtPath := filepath.Join(intermediateCADir, fmt.Sprintf("%s-intermediate-ca.crt", intermediateCAName))
-		if exists, err := pki.FileExists(intermediateCACrtPath); err != nil {
+		interFiles := intermediateCAFiles(workDir, intermediateCAName)
+		intermediateCert, intermediateKey, err := interFiles.load("Intermediate CA")
+		if err != nil {
 			return err
-		} else if !exists {
-			return fmt.Errorf("intermediate CA certificate %s does not exist. Please create the Intermediate CA first", intermediateCACrtPath)
+		}
+		rootCert, err := pki.LoadCert(rootCAFiles(workDir, rootCALiteralName).cert)
+		if err != nil {
+			return fmt.Errorf("root CA certificate: %w", err)
 		}
 
 		csr, err := pki.LoadCSR(signCSRPath)
@@ -90,54 +92,55 @@ need.`,
 			}
 		}
 
-		leafDir := filepath.Join(intermediateCADir, leafSubdir)
-		if err := pki.CreateDirectory(leafDir); err != nil {
-			return err
-		}
+		leafDir := filepath.Join(interFiles.dir, leafSubdir)
 		crtPath := signOut
 		if crtPath == "" {
 			crtPath = filepath.Join(leafDir, fmt.Sprintf("%s.crt", name))
 		}
-
-		present := pathsPresent(crtPath)
-		if len(present) > 0 && !forceGenerate {
-			return fmt.Errorf("a certificate already exists at %s\n\n"+
-				"Pass --force to replace it, or choose another --name or --out", crtPath)
-		}
-		// Even with no file in the way, the CA database may already hold a row for
-		// this subject, which openssl refuses to sign twice.
-		if forceGenerate {
-			if err := replaceLeaf(intermediateCADir, csr.Subject.CommonName, present); err != nil {
-				return err
+		if len(pathsPresent(crtPath)) > 0 {
+			if !forceGenerate {
+				return fmt.Errorf("a certificate already exists at %s\n\n"+
+					"Pass --force to replace it, or choose another --name or --out", crtPath)
 			}
+			fmt.Printf("--force: replacing %s\n", crtPath)
 		}
 
-		if len(csr.DNSNames)+len(csr.IPAddresses)+len(csr.EmailAddresses)+len(csr.URIs) == 0 {
+		sans := pki.SANsFromCSR(csr)
+		if sans.Count() == 0 {
 			fmt.Println("Warning: the request carries no Subject Alternative Names — most TLS clients reject a certificate matched on its common name alone.")
 		}
 
 		fmt.Printf("Signing %s as a %s certificate for %s under %s/%s\n",
 			signCSRPath, signType, csr.Subject.CommonName, rootCADomain, intermediateCAName)
 
-		// The intermediate config sets copy_extensions = copy, so the SANs requested
-		// in the CSR are carried over; -extensions pins basicConstraints, keyUsage
-		// and extendedKeyUsage so a request cannot ask for more than a leaf.
-		intermediateCAConfPath := filepath.Join(intermediateCADir, fmt.Sprintf("%s.conf", intermediateCAName))
-		if err := pki.RunCommand("openssl", "ca", "-batch",
-			"-config", intermediateCAConfPath,
-			"-extensions", extension,
-			"-in", signCSRPath,
-			"-out", crtPath,
-			"-days", "365"); err != nil {
+		// Only the subject fields the CA policy knows and the SANs are taken from
+		// the request. Basic constraints and key usages are set by homepki, so a
+		// request cannot ask for more than a leaf.
+		subject := pkix.Name{
+			Country:            csr.Subject.Country,
+			Province:           csr.Subject.Province,
+			Locality:           csr.Subject.Locality,
+			Organization:       csr.Subject.Organization,
+			OrganizationalUnit: csr.Subject.OrganizationalUnit,
+			CommonName:         csr.Subject.CommonName,
+		}
+		cert, err := pki.SignLeaf(csr.PublicKey, subject, sans, kind, intermediateCert, intermediateKey)
+		if err != nil {
 			return err
 		}
-		rootCACrtPath := filepath.Join(workDir, "ca", fmt.Sprintf("%s-root-ca.crt", rootCALiteralName))
-		if err := rejectOutsideConstraints(intermediateCADir, csr.Subject.CommonName, crtPath, intermediateCACrtPath, rootCACrtPath,
-			[]string{crtPath}); err != nil {
+		if err := checkLeaf(cert, intermediateCert, rootCert, kind, interFiles.cert); err != nil {
+			return err
+		}
+		if signOut == "" {
+			if err := pki.CreateDirectory(leafDir); err != nil {
+				return err
+			}
+		}
+		if err := pki.WriteCerts(crtPath, cert); err != nil {
 			return err
 		}
 
-		chainPath := filepath.Join(intermediateCADir, fmt.Sprintf("%s-intermediate-ca-chain.crt", intermediateCAName))
+		chainPath := filepath.Join(interFiles.dir, fmt.Sprintf("%s-intermediate-ca-chain.crt", intermediateCAName))
 		fmt.Printf("Certificate written to %s\n", crtPath)
 		fmt.Printf("%s it with the chain file %s; the private key stays wherever you generated it.\n", useVerb, chainPath)
 		return nil
@@ -152,7 +155,7 @@ func init() {
 	signCmd.Flags().StringVar(&signType, "type", "server", "Certificate type: server or client")
 	signCmd.Flags().StringVar(&signName, "name", "", "Name for the certificate file (default: first label of the request's common name)")
 	signCmd.Flags().StringVar(&signOut, "out", "", "Write the certificate here instead of the intermediate's server-tls/ or client-tls/")
-	signCmd.Flags().BoolVarP(&forceGenerate, "force", "f", false, "Replace an existing certificate for the same subject")
+	signCmd.Flags().BoolVarP(&forceGenerate, "force", "f", false, "Replace an existing certificate at the output path")
 	signCmd.MarkFlagRequired("domain")
 	signCmd.MarkFlagRequired("intermediate")
 	signCmd.MarkFlagRequired("csr")

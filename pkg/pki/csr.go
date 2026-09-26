@@ -37,11 +37,9 @@ func LoadCSR(path string) (*x509.CertificateRequest, error) {
 }
 
 // ValidateCSRSubject checks a CSR against the signing policy of an intermediate
-// CA, whose generated config requires organizationName and organizationalUnitName
-// to match exactly and a common name to be present. Catching a mismatch here
-// gives a usable message instead of openssl's "The organizationName field is
-// different between CA certificate and the request". exampleCN is shown in the
-// suggested openssl command when the subject does not fit.
+// CA: organizationName and organizationalUnitName must match exactly and a
+// common name must be present. exampleCN is shown in the suggested openssl
+// command when the subject does not fit.
 func ValidateCSRSubject(csr *x509.CertificateRequest, org, ou, exampleCN string) error {
 	var problems []string
 

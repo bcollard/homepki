@@ -30,7 +30,7 @@ homepki client-cert --domain runlocal.dev --intermediate bu1 --client my-client
 homepki trust install --domain runlocal.dev
 ```
 
-Certificates and keys are stored in `~/.homepki` by default.
+Certificates and keys are stored in `~/.homepki` by default. homepki is a single Go binary with no runtime dependency: keys, signing and chain verification use Go's `crypto/x509`, so `openssl` does not need to be installed.
 
 ## Configuration
 
@@ -88,14 +88,16 @@ go build -o homepki
 │   ├── client_cert.go              # client-cert command (generate + list)
 │   ├── sign.go                     # sign command (external CSRs)
 │   ├── trust.go                    # trust install/uninstall/status (macOS)
-│   ├── paths.go                    # shared --force and --key-type handling
+│   ├── leaf.go                     # shared server/client leaf issuance
+│   ├── paths.go                    # shared flags, CA file locations, helpers
 │   └── skill.go                    # skill install + path
 └── pkg/
     └── pki/
-        ├── pki.go                  # PKI helpers (OpenSSL wrappers, cert parsing)
-        ├── keys.go                 # --key-type → openssl key generation arguments
+        ├── pki.go                  # file helpers, chain verification, SAN parsing
+        ├── certs.go                # certificate issuance (crypto/x509)
+        ├── keys.go                 # --key-type → key generation, PEM key I/O
+        ├── constraints.go          # --name-constraint parsing
         ├── csr.go                  # CSR loading and subject policy checks
-        ├── db.go                   # openssl CA database (index.db) edits
         └── trust.go                # macOS trust store commands
 ```
 
@@ -177,7 +179,7 @@ homepki sign --domain runlocal.dev --intermediate bu1 --csr my-service.csr \
   --out ./my-service.crt
 ```
 
-The request's subject must carry the root CA's organization (`O=`, dots replaced by dashes) and the intermediate's organizational unit (`OU=`). Mismatches are rejected before OpenSSL runs, with the exact `-subj` to use printed in the error. Subject Alternative Names are copied from the request.
+The request's subject must carry the root CA's organization (`O=`, dots replaced by dashes) and the intermediate's organizational unit (`OU=`). Mismatches are rejected with the exact `-subj` to use printed in the error. Subject Alternative Names are copied from the request; every other requested extension is ignored, so a request cannot ask to be a CA.
 
 ### Trusting the Root CA (macOS)
 
@@ -203,6 +205,20 @@ homepki intermediate-ca --domain runlocal.dev --name bu1 --key-type ecdsa
 homepki server-cert --domain runlocal.dev --intermediate bu1 --server gw --key-type ecdsa-p384
 ```
 
+The signature digest follows the issuing CA's key: SHA-256 for RSA and P-256, SHA-384 for P-384, SHA-512 for P-521.
+
+### Name Constraints
+
+`root-ca` and `intermediate-ca` take a repeatable `--name-constraint` that limits the names the CA may issue for. Values use openssl syntax — `permitted;` or `excluded;`, then `DNS`, `IP`, `email` or `URI`. `permitted;` may be omitted and IP ranges accept CIDR.
+
+```bash
+homepki root-ca --domain klimax.internal --name-constraint "permitted;DNS:.klimax.internal"
+homepki intermediate-ca --domain klimax.internal --name bu1 \
+  --name-constraint "permitted;DNS:.bu1.klimax.internal" --name-constraint "IP:10.0.0.0/8"
+```
+
+`server-cert`, `client-cert` and `sign` verify every new certificate against its chain before writing it, so a name outside the constraints is refused and nothing is written. Constrain a root before trusting it system-wide: it then cannot vouch for any other site, even if its key leaks.
+
 ### Re-issuing
 
 Generate commands refuse to overwrite existing material: a re-run exits 1, prints what is in the way, and changes nothing. `--force` replaces it.
@@ -211,7 +227,7 @@ Generate commands refuse to overwrite existing material: a re-run exits 1, print
 homepki server-cert --domain runlocal.dev --intermediate bu1 --server kong-gateway --force
 ```
 
-For a leaf, `--force` also drops the subject's row from the intermediate's CA database, which is what lets the same name be issued again. For a CA tier, `--force` orphans every certificate beneath it — check the tier *below* the one you replaced, since it is the only one whose chain flips to invalid.
+There is no CA database, so the same subject can be issued any number of times. For a CA tier, `--force` orphans every certificate beneath it — check the tier *below* the one you replaced, since it is the only one whose chain flips to invalid.
 
 ### Listing and Chain Verification
 
@@ -249,11 +265,10 @@ Example JSON output:
 ## Security Features
 
 - **2048-bit RSA keys by default**, or ECDSA P-256/P-384/P-521 via `--key-type`
-- **UTF-8 encoding** for international character support
-- **Proper file permissions** (700 for private directories)
-- **Certificate database tracking** for revocation management
-- **Serial number management** for unique certificate identification
-- **Chain verification** on all `list` commands
+- **Private keys** written as PKCS#8 PEM, mode 600, in 700 `private/` directories
+- **Random 128-bit serial numbers**
+- **Name constraints** on either CA tier, enforced before a leaf is written
+- **Chain verification** on every issue and every `list` command
 
 ## File Organization
 
@@ -281,7 +296,8 @@ Example JSON output:
 ## Defaults
 
 - **Key**: 2048-bit RSA (`--key-type ecdsa` for P-256, `ecdsa-p384`, `ecdsa-p521`)
-- **Digest**: SHA-256
+- **Digest**: follows the issuer's key — SHA-256 (RSA, P-256), SHA-384 (P-384), SHA-512 (P-521)
+- **Serial numbers**: random 128-bit
 - **Validity**: 365 days for leaf certs, 2190 days (~6 years) for CAs
 - **Extensions**: Proper X.509 extensions for CA and end-entity certificates
 
@@ -300,9 +316,10 @@ Example JSON output:
 1. **Permission denied**: Ensure proper file permissions on private directories
 2. **Certificate validation**: Check certificate chains and trust relationships
 3. **Expired certificates**: Monitor and renew certificates before expiration
-4. **Configuration errors**: Validate OpenSSL configuration syntax
 
 ### Verification Commands
+
+These use `openssl`, which homepki itself does not need.
 
 ```bash
 # Inspect a certificate
