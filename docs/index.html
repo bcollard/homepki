@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <title>homepki – three-tier PKI for local development</title>
-<meta name="description" content="A command line tool that creates a root CA, intermediate CAs, and server or client TLS certificates on your workstation. Verifies chains of trust, supports name constraints, signs external requests, and installs the root into the macOS trust store.">
+<meta name="description" content="A command line tool that creates a root CA, intermediate CAs, and server or client TLS certificates on your workstation. Verifies chains of trust, supports name constraints, signs external requests, and installs the root into the macOS trust store. A single Go binary with no OpenSSL dependency.">
 <link rel="canonical" href="https://bcollard.github.io/homepki/">
 <link rel="icon" href="mark.svg" type="image/svg+xml">
 
 <meta property="og:type" content="website">
 <meta property="og:title" content="homepki – three-tier PKI for local development">
-<meta property="og:description" content="Root CA, intermediate CAs, and server or client leaves, one command per tier. Chains are verified in-process, RSA or ECDSA, with JSON output for scripts.">
+<meta property="og:description" content="Root CA, intermediate CAs, and server or client leaves, one command per tier. Chains are verified in-process, RSA or ECDSA, with JSON output for scripts. No OpenSSL needed.">
 <meta property="og:url" content="https://bcollard.github.io/homepki/">
 <meta name="twitter:card" content="summary">
 
@@ -61,10 +61,10 @@
     },
     {
       "@type": "Question",
-      "name": "Why does every command fail with a 'missing equal sign' config error?",
+      "name": "Does homepki need OpenSSL?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "You are running macOS's bundled LibreSSL, which does not support the .include directive homepki writes into its generated openssl configs. Install Homebrew's OpenSSL 3 and put it ahead of /usr/bin/openssl in PATH. Check with: openssl version."
+        "text": "No. homepki is a single Go binary. Key generation, signing and chain verification use Go's crypto/x509, so nothing else has to be installed."
       }
     },
     {
@@ -282,14 +282,14 @@
       <a class="btn btn-primary" href="#install">Install</a>
       <a class="btn btn-ghost" href="https://github.com/bcollard/homepki">GitHub</a>
     </div>
-    <p class="note">Free and MIT licensed. macOS and Linux.</p>
+    <p class="note">Free and MIT licensed. macOS and Linux. One binary, no OpenSSL needed.</p>
   </div>
 </header>
 
 <section>
   <div class="wrap">
     <h2>Three tiers, one command each</h2>
-    <p class="lede">A self-signed certificate works until something needs to verify a chain of trust. homepki creates all three tiers and writes the openssl configs, keys and CA databases for you.</p>
+    <p class="lede">A self-signed certificate works until something needs to verify a chain of trust. homepki creates all three tiers, keys included, from a single Go binary with nothing else to install.</p>
 
     <div class="tiers">
       <div class="tier"><b>Root CA</b><code>homepki root-ca -d runlocal.dev</code></div>
@@ -305,7 +305,7 @@
 <section class="alt">
   <div class="wrap">
     <h2>Chain verification</h2>
-    <p class="lede">Every tier has a <code>list</code> subcommand that reports expiry, days remaining, and whether the certificate chains to its issuer. Verification runs in-process with Go's <code>crypto/x509</code>, so there is no <code>openssl verify</code> output to parse.</p>
+    <p class="lede">Every tier has a <code>list</code> subcommand that reports expiry, days remaining, and whether the certificate chains to its issuer. Verification runs in-process with Go's <code>crypto/x509</code>, so there is no tool output to parse.</p>
 
 <pre class="wide"><code>$ homepki server-cert list -d runlocal.dev -i bu1
 Server Certificates for runlocal.dev/bu1:
@@ -384,7 +384,7 @@ kubectl create secret generic kong-ca \
 homepki intermediate-ca -d runlocal.dev -n bu1 --key-type ecdsa
 homepki server-cert     -d runlocal.dev -i bu1 -s kong-gateway --key-type ecdsa-p384</code></pre>
 
-    <p>Tiers are independent, so an ECDSA leaf under an RSA intermediate is fine. The signature digest is SHA-256 either way. An unrecognised value is rejected before anything is written to disk.</p>
+    <p>Tiers are independent, so an ECDSA leaf under an RSA intermediate is fine. The signature digest follows the issuing CA's key: SHA-256 for RSA and P-256, SHA-384 for P-384, SHA-512 for P-521. An unrecognised value is rejected before anything is written to disk.</p>
   </div>
 </section>
 
@@ -397,18 +397,17 @@ homepki server-cert     -d runlocal.dev -i bu1 -s kong-gateway --key-type ecdsa-
 <span class="no">Error: a server certificate named "kong-gateway" already exists under runlocal.dev/bu1:</span>
   ~/.homepki/runlocal-dev/bu1/server-tls/kong-gateway.crt
   ~/.homepki/runlocal-dev/bu1/server-tls/kong-gateway.key
-  ~/.homepki/runlocal-dev/bu1/server-tls/kong-gateway.csr
 
 Re-issuing overwrites its private key, so anything already serving that pair
 breaks. Pass --force to replace it, or issue under another name</code></pre>
 
-    <p><code>--force</code> on a leaf removes those files <em>and</em> that subject's row from the intermediate's certificate database — the row that otherwise makes OpenSSL refuse a second certificate for the same name. Re-issuing under the same name is one command:</p>
+    <p><code>--force</code> on a leaf replaces the key and certificate. There is no certificate database to clean up, so re-issuing under the same name is one command:</p>
 
 <pre><code>homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway \
   --san kong.local --san 10.0.0.5 --force</code></pre>
 
     <div class="callout">
-      <p><code>--force</code> on a CA tier is the destructive one: a new key and a reset database orphan every certificate below it. The tier you replaced keeps reporting <code>✓ OK</code>, so check the tier <em>below</em> it.</p>
+      <p><code>--force</code> on a CA tier is the destructive one: a new key orphans every certificate below it. The tier you replaced keeps reporting <code>✓ OK</code>, so check the tier <em>below</em> it.</p>
     </div>
   </div>
 </section>
@@ -447,9 +446,9 @@ homepki intermediate-ca -d klimax.internal -n bu1 \
   --name-constraint "permitted;DNS:.bu1.klimax.internal" \
   --name-constraint "IP:10.0.0.0/8"</code></pre>
 
-    <p><code>--name-constraint</code> takes OpenSSL syntax, <code>permitted;</code> or <code>excluded;</code> then <code>DNS</code>, <code>IP</code>, <code>email</code>, <code>URI</code> or <code>dirName</code>, and can be repeated. <code>permitted;</code> can be left out, and IP ranges can be written as CIDR. <code>.klimax.internal</code> matches subdomains only, while <code>klimax.internal</code> also matches the domain itself. Go, macOS, Chrome and Firefox all enforce constraints on a root.</p>
+    <p><code>--name-constraint</code> takes OpenSSL syntax, <code>permitted;</code> or <code>excluded;</code> then <code>DNS</code>, <code>IP</code>, <code>email</code>, or <code>URI</code>, and can be repeated. <code>permitted;</code> can be left out, and IP ranges can be written as CIDR. <code>.klimax.internal</code> matches subdomains only, while <code>klimax.internal</code> also matches the domain itself. Go, macOS, Chrome and Firefox all enforce constraints on a root.</p>
 
-    <p>OpenSSL signs a leaf even when it breaks a constraint. homepki checks every new leaf against its chain, and if a name is not allowed it deletes the certificate and its database row, then exits non-zero:</p>
+    <p>homepki checks every new leaf against its chain before writing it. If a name is not allowed, nothing is written and the command exits non-zero:</p>
 
 <pre class="wide"><code>$ homepki server-cert -d klimax.internal -i bu1 -s gw --san evil.example.com
 <span class="no">Error: x509: a root or intermediate certificate is not authorized to sign
@@ -474,10 +473,10 @@ homepki sign -d runlocal.dev -i bu1 --csr my-service.csr
 homepki sign -d runlocal.dev -i bu1 --csr my-client.csr --type client
 homepki sign -d runlocal.dev -i bu1 --csr my-service.csr --out ./my-service.crt</code></pre>
 
-    <p>Subject Alternative Names are copied from the request. Basic constraints, key usage and extended key usage are pinned by homepki, so a request cannot ask to become a CA.</p>
+    <p>Subject Alternative Names are copied from the request. Every other extension it asks for is ignored: basic constraints, key usage and extended key usage are set by homepki, so a request cannot ask to become a CA.</p>
 
     <div class="callout">
-      <p>The intermediate signs only requests carrying its own organization and organizational unit — <code>O=</code> the root CA's literal name, <code>OU=</code> the intermediate name. A mismatch is rejected before OpenSSL runs, and the error prints the exact <code>-subj</code> to use.</p>
+      <p>The intermediate signs only requests carrying its own organization and organizational unit — <code>O=</code> the root CA's literal name, <code>OU=</code> the intermediate name. A mismatch is rejected, and the error prints the exact <code>-subj</code> to use.</p>
     </div>
   </div>
 </section>
@@ -503,19 +502,11 @@ homepki skill install --print  <span class="c"># emit it to stdout, pipe it anyw
       <dt>Can I use this for production certificates?</dt>
       <dd>No. Keys are unencrypted, validity periods are fixed at 2190 days for CAs and 365 days for leaves, and there is no revocation or renewal. This is a local-development CA. Use ACME/Let's Encrypt or your organisation's PKI for anything public-facing.</dd>
 
-      <dt>Every command fails with a config error about a missing equal sign. Why?</dt>
-      <dd>
-        You are running macOS's bundled LibreSSL, which does not support the <code>.include</code> directive homepki writes into its generated configs. The error message does not mention LibreSSL.
-        <pre><code>openssl version          <span class="c"># must say OpenSSL 3.x, not LibreSSL</span>
-brew install openssl@3
-export PATH="$(brew --prefix openssl@3)/bin:$PATH"</code></pre>
-      </dd>
-
       <dt>Is it safe to re-run a generate command?</dt>
       <dd>Yes. A generate command refuses to overwrite existing material: it exits non-zero, prints what is in the way, and changes nothing. <code>--force</code> replaces it deliberately. On a CA tier that is still destructive — every certificate below stops verifying, while the tier you replaced keeps showing <code>✓ OK</code>, so check the tier <em>below</em> it.</dd>
 
       <dt>How do I re-issue a leaf under the same name?</dt>
-      <dd>Pass <code>--force</code>. It removes the old certificate, key and request, and drops that subject's row from the intermediate's database — the row that otherwise makes OpenSSL refuse a second certificate for the same name. The key is regenerated, so anything already serving the old pair has to be reloaded.</dd>
+      <dd>Pass <code>--force</code>. It writes a new key and certificate over the old pair. The key is regenerated, so anything already serving the old pair has to be reloaded.</dd>
 
       <dt>How is this different from mkcert?</dt>
       <dd>mkcert installs its root into the trust stores of every OS it supports, plus Firefox and Java. homepki installs into the macOS system keychain only. The difference is the hierarchy: homepki creates intermediates, separate client certificates for mTLS, and a CA bundle to hand to a service, and it signs requests generated elsewhere. mkcert issues leaves straight from its root.</dd>
@@ -523,8 +514,8 @@ export PATH="$(brew --prefix openssl@3)/bin:$PATH"</code></pre>
       <dt>Where does it store files, and how do I start over?</dt>
       <dd>Everything lives under one directory: <code>--workdir</code>, then <code>$HOMEPKI_WORKDIR</code>, then <code>~/.homepki</code>. There is no delete command, so removing a PKI means <code>rm -rf</code> on that directory. Point <code>HOMEPKI_WORKDIR</code> at a temporary directory for a throwaway PKI.</dd>
 
-      <dt>Does it need anything besides OpenSSL?</dt>
-      <dd>No. It is a single Go binary that calls OpenSSL for key generation and signing, and verifies chains itself. openssl is always invoked in batch mode, so no command waits for a passphrase or a DN prompt.</dd>
+      <dt>Does it need OpenSSL?</dt>
+      <dd>No. It is a single Go binary: key generation, signing and chain verification use Go's <code>crypto/x509</code>. No command waits for a passphrase or a DN prompt, except <code>trust install</code> and <code>uninstall</code>, which run under <code>sudo</code>.</dd>
     </dl>
   </div>
 </section>
@@ -539,9 +530,7 @@ brew install --cask homepki</code></pre>
     <p>Or download a binary for macOS or Linux, amd64 or arm64, from the <a href="https://github.com/bcollard/homepki/releases/latest">latest release</a>.</p>
 
     <h3>First run</h3>
-<pre><code>openssl version | grep -q '^OpenSSL' || echo "install Homebrew OpenSSL first"
-
-export HOMEPKI_WORKDIR="$PWD/.pki"     <span class="c"># keep this PKI in the project directory</span>
+<pre><code>export HOMEPKI_WORKDIR="$PWD/.pki"     <span class="c"># keep this PKI in the project directory</span>
 
 homepki root-ca         -d runlocal.dev
 homepki intermediate-ca -d runlocal.dev -n bu1
@@ -549,7 +538,7 @@ homepki server-cert     -d runlocal.dev -i bu1 -s kong-gateway --san kong.local
 
 homepki server-cert list -d runlocal.dev -i bu1</code></pre>
 
-    <p class="note">Generate commands are verbose: they echo each openssl invocation and the full signed certificate. Redirect to <code>/dev/null</code> in scripts and check the result with <code>list -o json</code>.</p>
+    <p class="note">Generate commands print each file they write. In scripts, rely on the exit code and check the result with <code>list -o json</code>.</p>
   </div>
 </section>
 
