@@ -51,6 +51,23 @@ homepki intermediate-ca -d runlocal.dev -n bu1 --key-type ecdsa
 homepki server-cert     -d runlocal.dev -i bu1 -s kong-gateway --key-type ecdsa-p384
 ```
 
+## Name constraints
+
+`root-ca` and `intermediate-ca` take `--name-constraint` (repeatable) to limit the names the CA may issue for. Values use openssl syntax: `permitted;TYPE:value` or `excluded;TYPE:value`, with `TYPE` one of `DNS`, `IP`, `email`, `URI`, `dirName`. The `permitted;` prefix may be omitted. IP ranges accept CIDR (`10.0.0.0/8`) or address/netmask. The extension is marked critical.
+
+```bash
+homepki root-ca         -d klimax.internal --name-constraint "permitted;DNS:.klimax.internal"
+homepki intermediate-ca -d klimax.internal -n bu1 --name-constraint "permitted;DNS:.bu1.klimax.internal"
+```
+
+- **Constrain the root when the root goes into the system trust store.** A trusted root restricted to `.klimax.internal` cannot be used to impersonate any other site, even if its key leaks. Go, macOS, Chrome and Firefox all enforce constraints on roots.
+- **`.klimax.internal` matches subdomains only; `klimax.internal` matches the domain and its subdomains.**
+- **Constraints apply per name type.** A `DNS` constraint alone leaves IP SANs unrestricted; add an `IP:` constraint to restrict those too.
+- **Pick a domain inside the constraint.** Every `server-cert`/`client-cert` leaf carries `<leaf>.<intermediate>.<domain>` as a SAN, so the constraint must permit that. The CA commands print a warning when it does not.
+- **Leaves outside the constraints are refused.** openssl signs them anyway, so `server-cert`, `client-cert` and `sign` verify the result and, on a name constraint violation, delete the certificate and its CA database row and exit 1 with `x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "..." is not permitted by any constraint`.
+- **Constraints are fixed at issue time.** Adding or changing them means re-generating the CA with `--force`, which orphans everything beneath it.
+- Inspect them with `openssl x509 -noout -ext nameConstraints -in <ca.crt>`.
+
 ## Listing and verifying
 
 Every tier has a `list` subcommand (aliases `ls`, `l`) that reports expiry, days remaining, and a **verified chain of trust**:

@@ -19,6 +19,9 @@ var rootCACmd = &cobra.Command{
   # Generate a Root CA with an ECDSA P-256 key
   homepki root-ca --domain runlocal.dev --key-type ecdsa
 
+  # Restrict the Root CA to names under klimax.internal
+  homepki root-ca --domain klimax.internal --name-constraint "permitted;DNS:.klimax.internal"
+
   # List existing Root CAs
   homepki root-ca list
 
@@ -29,6 +32,10 @@ var rootCACmd = &cobra.Command{
 			return fmt.Errorf("root CA domain name is required")
 		}
 		keyArgs, err := pki.KeyGenArgs(keyType)
+		if err != nil {
+			return err
+		}
+		ncExt, err := pki.NameConstraintsExt(nameConstraints)
 		if err != nil {
 			return err
 		}
@@ -54,6 +61,7 @@ var rootCACmd = &cobra.Command{
 		}
 
 		fmt.Printf("Initializing Root CA for %s in %s\n", rootCADomain, workDir)
+		warnLeafCNOutsideConstraints(rootCADomain, "")
 
 		// Create directories
 		if err := pki.CreateDirectory(rootCADir); err != nil {
@@ -98,7 +106,7 @@ commonName              = %s
 [ root_ca_ext ]
 keyUsage                = critical,keyCertSign,cRLSign
 basicConstraints        = critical,CA:true,pathlen:1
-
+%s
 # used for self-signing the root CA
 # also used when signing intermediate CAs (accounts/organizations)
 [ ca ]
@@ -131,7 +139,7 @@ commonName              = supplied              # Must be present
 keyUsage                = critical,keyCertSign,cRLSign
 basicConstraints        = critical,CA:true,pathlen:0
 subjectKeyIdentifier    = hash
-`, workDir, rootCALiteralName, rootCALiteralName, rootCADomain, rootCADir, rootCALiteralName, rootCADir, rootCADir, rootCALiteralName, rootCADir, rootCADir, rootCADir, rootCALiteralName)
+`, workDir, rootCALiteralName, rootCALiteralName, rootCADomain, nameConstraintsLine(ncExt), rootCADir, rootCALiteralName, rootCADir, rootCADir, rootCALiteralName, rootCADir, rootCADir, rootCADir, rootCALiteralName)
 
 		rootCAConfPath := filepath.Join(rootCADir, fmt.Sprintf("%s.conf", rootCALiteralName))
 		if err := pki.WriteFile(rootCAConfPath, rootCAConfContent); err != nil {
@@ -217,6 +225,7 @@ func init() {
 	rootCACmd.Flags().StringVarP(&rootCADomain, "domain", "d", "", "Root CA domain name (e.g., runlocal.dev)")
 	rootCACmd.Flags().StringVar(&keyType, "key-type", "rsa", keyTypeFlagUsage)
 	rootCACmd.Flags().BoolVarP(&forceGenerate, "force", "f", false, "Replace an existing Root CA (orphans every certificate under it)")
+	rootCACmd.Flags().StringArrayVar(&nameConstraints, "name-constraint", nil, nameConstraintFlagUsage)
 	rootCACmd.MarkFlagRequired("domain")
 	rootCAListCmd.Flags().StringVarP(&outputFormat, "output", "o", "table", "Output format: table or json")
 }

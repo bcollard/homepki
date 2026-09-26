@@ -139,6 +139,11 @@ subjectAltName          = critical, @server_alt_names
 			"-days", "365"); err != nil {
 			return err
 		}
+		rootCACrtPath := filepath.Join(workDir, "ca", fmt.Sprintf("%s-root-ca.crt", rootCALiteralName))
+		if err := rejectOutsideConstraints(intermediateCADir, commonName, crtPath, intermediateCACrtPath, rootCACrtPath,
+			[]string{crtPath, keyPath, csrPath, serverConfPath}); err != nil {
+			return err
+		}
 
 		fmt.Println("Server Certificate generated successfully.")
 		return nil

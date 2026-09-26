@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/bcollard/homepki/pkg/pki"
@@ -19,6 +20,10 @@ var intermediateCACmd = &cobra.Command{
   # Generate one with an ECDSA P-256 key
   homepki intermediate-ca --domain runlocal.dev --name bu1 --key-type ecdsa
 
+  # Restrict the Intermediate CA to names under bu1.klimax.internal
+  homepki intermediate-ca --domain klimax.internal --name bu1 \
+    --name-constraint "permitted;DNS:.bu1.klimax.internal"
+
   # List existing Intermediate CAs with chain verification
   homepki intermediate-ca list --domain runlocal.dev
 
@@ -32,6 +37,10 @@ var intermediateCACmd = &cobra.Command{
 			return fmt.Errorf("intermediate CA name is required")
 		}
 		keyArgs, err := pki.KeyGenArgs(keyType)
+		if err != nil {
+			return err
+		}
+		ncExt, err := pki.NameConstraintsExt(nameConstraints)
 		if err != nil {
 			return err
 		}
@@ -65,6 +74,7 @@ var intermediateCACmd = &cobra.Command{
 		}
 
 		fmt.Printf("Initializing Intermediate CA %s for %s\n", intermediateCAName, rootCADomain)
+		warnLeafCNOutsideConstraints(rootCADomain, intermediateCAName)
 
 		// Create directories
 		if err := pki.CreateDirectory(intermediateCADir); err != nil {
@@ -164,11 +174,27 @@ subjectKeyIdentifier    = hash
 
 		// Sign with Root CA
 		rootCAConfPath := filepath.Join(rootCADir, fmt.Sprintf("%s.conf", rootCALiteralName))
-		if err := pki.RunCommand("openssl", "ca", "-batch",
-			"-config", rootCAConfPath,
-			"-extensions", "signing_ca_ext",
-			"-in", csrPath,
-			"-out", crtPath); err != nil {
+		signArgs := []string{"ca", "-batch", "-config", rootCAConfPath, "-extensions", "signing_ca_ext"}
+		signingExtPath := filepath.Join(intermediateCADir, fmt.Sprintf("%s-signing-ext.conf", intermediateCAName))
+		if ncExt != "" {
+			// The Root CA config's signing_ca_ext is shared by every intermediate, so
+			// per-intermediate name constraints go in an extension file of their own
+			// that replaces it for this signature.
+			if err := pki.WriteFile(signingExtPath, fmt.Sprintf(`# Extensions the Root CA applies when signing %s
+[ signing_ca_ext ]
+keyUsage                = critical,keyCertSign,cRLSign
+basicConstraints        = critical,CA:true,pathlen:0
+subjectKeyIdentifier    = hash
+%s`, intermediateCAName, nameConstraintsLine(ncExt))); err != nil {
+				return err
+			}
+			signArgs = append(signArgs, "-extfile", signingExtPath)
+		} else if err := os.Remove(signingExtPath); err != nil && !os.IsNotExist(err) {
+			// A leftover file from a --force re-generation would misdescribe this CA.
+			return err
+		}
+		signArgs = append(signArgs, "-in", csrPath, "-out", crtPath)
+		if err := pki.RunCommand("openssl", signArgs...); err != nil {
 			return err
 		}
 
@@ -282,6 +308,7 @@ func init() {
 	intermediateCACmd.Flags().StringVarP(&intermediateCAName, "name", "n", "", "Intermediate CA name (e.g., bu1)")
 	intermediateCACmd.Flags().StringVar(&keyType, "key-type", "rsa", keyTypeFlagUsage)
 	intermediateCACmd.Flags().BoolVarP(&forceGenerate, "force", "f", false, "Replace an existing Intermediate CA (orphans every certificate under it)")
+	intermediateCACmd.Flags().StringArrayVar(&nameConstraints, "name-constraint", nil, nameConstraintFlagUsage)
 	intermediateCACmd.MarkFlagRequired("domain")
 	intermediateCACmd.MarkFlagRequired("name")
 

@@ -131,6 +131,11 @@ need.`,
 			"-days", "365"); err != nil {
 			return err
 		}
+		rootCACrtPath := filepath.Join(workDir, "ca", fmt.Sprintf("%s-root-ca.crt", rootCALiteralName))
+		if err := rejectOutsideConstraints(intermediateCADir, csr.Subject.CommonName, crtPath, intermediateCACrtPath, rootCACrtPath,
+			[]string{crtPath}); err != nil {
+			return err
+		}
 
 		chainPath := filepath.Join(intermediateCADir, fmt.Sprintf("%s-intermediate-ca-chain.crt", intermediateCAName))
 		fmt.Printf("Certificate written to %s\n", crtPath)

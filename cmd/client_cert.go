@@ -128,6 +128,11 @@ DNS.1 = %s.%s.%s
 			"-days", "365"); err != nil {
 			return err
 		}
+		rootCACrtPath := filepath.Join(workDir, "ca", fmt.Sprintf("%s-root-ca.crt", rootCALiteralName))
+		if err := rejectOutsideConstraints(intermediateCADir, commonName, crtPath, intermediateCACrtPath, rootCACrtPath,
+			[]string{crtPath, keyPath, csrPath, clientConfPath}); err != nil {
+			return err
+		}
 
 		fmt.Println("Client Certificate generated successfully.")
 		return nil
