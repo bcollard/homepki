@@ -88,6 +88,11 @@ func VerifyRootCert(rootCACertPath string) error {
 	if err != nil {
 		return fmt.Errorf("root CA cert: %w", err)
 	}
+	// Verify alone accepts any certificate found in its own root pool, so the
+	// self-signature has to be checked explicitly.
+	if err := cert.CheckSignatureFrom(cert); err != nil {
+		return fmt.Errorf("not self-signed: %w", err)
+	}
 	roots := x509.NewCertPool()
 	roots.AddCert(cert)
 	_, err = cert.Verify(x509.VerifyOptions{
