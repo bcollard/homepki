@@ -35,20 +35,42 @@ pkg/pki/csr.go             # CSR loading + subject policy validation
 pkg/pki/crl.go             # CRL signing/loading, revocation reasons
 pkg/pki/pkcs12.go          # PKCS#12 output (software.sslmate.com/src/go-pkcs12, LegacyDES)
 pkg/pki/trust.go           # trust store detection + command construction (security, update-ca-*, certutil, keytool)
-docs/                      # GitHub Pages site (see below)
+docs/                      # GitHub Pages site: home page + docs/docs/ section (see below)
+scripts/site.py            # website generator/validator (nav, sidebar, pager, search index, sitemap)
 ```
 
 ## Website
 
-`docs/` is served by GitHub Pages at https://bcollard.github.io/homepki/ (Pages source: `main` branch, `/docs` folder). It is a hand-written single-file page — `docs/index.html`, with `mark.svg`, `robots.txt`, `sitemap.xml` and `.nojekyll` alongside. No build step and no Jekyll; edit the HTML directly and push to `main` to deploy.
+`docs/` is served by GitHub Pages at https://bcollard.github.io/homepki/ (Pages source: `main` branch, `/docs` folder, `.nojekyll`). Hand-written static HTML, no framework, no dependencies; push to `main` to deploy.
 
-Preview it locally before pushing — `file://` URLs do not render reliably:
-
-```bash
-python3 -m http.server 8787 --bind 127.0.0.1 --directory docs
+```
+docs/
+├── index.html          # minimal home page
+├── 404.html            # served for any missing path: links are absolute (/homepki/...)
+├── styles.css          # every style, light/dark/auto via :root[data-theme]
+├── site.js             # theme toggle, release badge, sidebar, heading anchors, search, copy buttons
+├── mark.svg · robots.txt · sitemap.xml (generated)
+└── docs/               # documentation section, layout modelled on klimax.dev/docs
+    ├── index.html      # overview, card grid
+    ├── *.html          # one page per topic
+    └── search-index.js # generated
 ```
 
-Two CSS constraints are load-bearing and easy to reintroduce: `.tiers` needs `grid-template-columns: minmax(0, 1fr)` (an implicit `auto` track sizes to the widest command and overflows phones), and the dark-mode `.btn-primary` needs dark ink (white on the mint accent fails WCAG AA at 2.3:1).
+**Run `python3 scripts/site.py` after every website change.** Shared parts are written between marker comments in each page — `<!-- nav -->`, `<!-- sidebar -->`, `<!-- breadcrumb -->`, `<!-- pager -->`, `<!-- footer -->` — so never edit inside them by hand. The script also regenerates `docs/docs/search-index.js` and `docs/sitemap.xml`, and exits non-zero on broken links or anchors, duplicate ids, `<h2>`/`<h3>` without an id, unbalanced tags, invalid JSON-LD, or a `<pre>` inside a `.callout`.
+
+To add a docs page: copy an existing page for its `<head>` and markers, add it to `GROUPS` in `scripts/site.py` (sidebar order is also the prev/next order), give every `<h2>`/`<h3>` a slug `id`, run the script, commit the regenerated files with it.
+
+- **Links must be relative** (`trust.html`, `../`). The site lives under `/homepki/`, so `/docs/...` would point at another site. Only `404.html` uses absolute `/homepki/` paths.
+- **Release badge**: the nav shows the newest version in `docs/docs/changelog.html`, baked in by `site.py`; `site.js` refreshes it from the GitHub releases API (cached per session). Add the changelog entry and run `site.py` in the release commit, before tagging.
+- **Callouts** are an icon plus one `<p>`: `.callout` is flex, a `<pre>` inside is squeezed into a column.
+- Two CSS constraints are load-bearing: `.tiers` needs `grid-template-columns: minmax(0, 1fr)` (an implicit `auto` track sizes to the widest command and overflows phones), and `--on-brand` must stay dark ink in dark mode (white on the mint accent fails WCAG AA at 2.3:1).
+- Content facts come from the code (`go run . <cmd> --help`, `pkg/pki`), not memory.
+
+Preview locally — `file://` URLs do not render reliably:
+
+```bash
+python3 -m http.server 8787 --bind 127.0.0.1 --directory docs    # http://127.0.0.1:8787/
+```
 
 ## Agent Skill
 
@@ -103,6 +125,8 @@ Every issued leaf is checked with `pki.VerifyChain` before anything is written (
 
 Releases are triggered by pushing a `v*.*.*` tag. GoReleaser builds cross-platform binaries and updates the Homebrew tap (`HOMEBREW_TAP_GITHUB_TOKEN` secret required).
 
+Before tagging, add the release to `docs/docs/changelog.html` and run `python3 scripts/site.py` (the nav badge takes its version from the changelog), in the same commit.
+
 ```bash
-git tag v0.x.y && git push origin v0.x.y
+git tag -m v0.x.y v0.x.y && git push origin v0.x.y    # tags are signed: a bare `git tag v0.x.y` fails
 ```

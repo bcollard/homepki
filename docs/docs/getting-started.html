@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>try{var t=localStorage.getItem('homepki-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+
+<title>Getting started – homepki docs</title>
+<meta name="description" content="Install homepki, create a root CA, an intermediate CA and a server certificate, and find the files it writes.">
+<link rel="canonical" href="https://bcollard.github.io/homepki/docs/getting-started.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="homepki">
+<meta property="og:url" content="https://bcollard.github.io/homepki/docs/getting-started.html">
+<meta property="og:title" content="Getting started with homepki">
+<meta property="og:description" content="Install homepki and issue a three-tier certificate hierarchy in four commands.">
+<meta name="theme-color" content="#f6faf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1513" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<!-- nav --><nav class="nav">
+  <a class="brand" href="../" aria-label="homepki home">
+    <img src="../mark.svg" width="28" height="28" alt="">
+    <strong>homepki</strong>
+  </a>
+  <div class="nav-search">
+    <input type="search" id="docsSearch" placeholder="Search docs…" aria-label="Search documentation" autocomplete="off">
+    <kbd class="nav-search-kbd">⌘K</kbd>
+    <ul class="docs-search-results" id="docsSearchResults" hidden></ul>
+  </div>
+  <div class="nav-right">
+    <a class="nav-home" href="../">Home</a>
+    <a class="nav-docs" href="../docs/">Docs</a>
+    <a class="nav-github" href="https://github.com/bcollard/homepki">GitHub</a>
+    <a class="nav-version" id="navVersion" href="https://github.com/bcollard/homepki/releases/latest" title="Latest release">v0.8.1</a>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle colour theme"><span class="sun">☀</span><span class="moon">☾</span><span class="auto">◐</span></button>
+  </div>
+</nav><!-- /nav -->
+
+<div class="docs-shell">
+  <!-- sidebar --><details class="docs-sidebar" id="docsSidebar">
+    <summary>Documentation menu</summary>
+    <div class="docs-nav-inner">
+      <div class="docs-nav-group">
+        <h5>Introduction</h5>
+        <ul class="docs-nav">
+          <li><a href="./">Overview</a></li>
+          <li><a href="getting-started.html" class="active" aria-current="page">Getting started</a></li>
+          <li><a href="comparison.html">vs. other tools</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Issuing certificates</h5>
+        <ul class="docs-nav">
+          <li><a href="hierarchy.html">Certificate hierarchy</a></li>
+          <li><a href="leaf-certificates.html">Server and client certificates</a></li>
+          <li><a href="signing-csrs.html">Signing external CSRs</a></li>
+          <li><a href="listing.html">Listing and verification</a></li>
+          <li><a href="using-certificates.html">Using the certificates</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Security</h5>
+        <ul class="docs-nav">
+          <li><a href="name-constraints.html">Name constraints</a></li>
+          <li><a href="revocation.html">Revocation</a></li>
+          <li><a href="trust.html">Trusting the root CA</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Reference</h5>
+        <ul class="docs-nav">
+          <li><a href="cli-reference.html">CLI reference</a></li>
+          <li><a href="go-package.html">Go package</a></li>
+          <li><a href="agent-skill.html">Agent Skill</a></li>
+          <li><a href="changelog.html">Changelog</a></li>
+        </ul>
+      </div>
+    </div>
+  </details><!-- /sidebar -->
+
+  <main class="docs-main">
+    <article class="docs-prose">
+      <!-- breadcrumb --><p class="breadcrumb"><a href="../">Home</a> › <a href="./">Docs</a> › Getting started</p><!-- /breadcrumb -->
+      <h1>Getting started</h1>
+      <p class="lead">Install homepki, create a root CA, an intermediate CA and a server certificate, then check that the chain verifies.</p>
+
+      <h2 id="install">Install</h2>
+      <p>With Homebrew, on macOS or Linux:</p>
+<pre><code><span class="p">$</span> brew tap bcollard/homepki
+<span class="p">$</span> brew install --cask homepki</code></pre>
+      <p>Or download the archive for your platform (macOS or Linux, amd64 or arm64) from the <a href="https://github.com/bcollard/homepki/releases/latest">latest release</a> and put the <code>homepki</code> binary on your <code>PATH</code>. There is no other dependency: keys, signing and chain verification use Go's <code>crypto/x509</code>, so OpenSSL does not need to be installed. <code>homepki version</code> prints the installed release.</p>
+
+      <h2 id="first-pki">Create a first PKI</h2>
+      <p>Every command works under a root CA identified by its domain (<code>-d</code>). Intermediates are named with <code>-n</code>, and leaves under an intermediate with <code>-s</code> (server) or <code>-c</code> (client).</p>
+<pre><code><span class="p">$</span> homepki root-ca         -d runlocal.dev
+<span class="p">$</span> homepki intermediate-ca -d runlocal.dev -n bu1
+<span class="p">$</span> homepki server-cert     -d runlocal.dev -i bu1 -s kong-gateway --san kong.local
+<span class="p">$</span> homepki client-cert     -d runlocal.dev -i bu1 -c my-client</code></pre>
+      <p>Each command is synchronous: the files are on disk when it returns. Each tier needs the tier above it and stops with an error if it is missing.</p>
+
+      <h2 id="check-the-chain">Check the chain</h2>
+      <p>Every tier has a <code>list</code> subcommand that verifies the chain of trust:</p>
+<pre><code><span class="p">$</span> homepki server-cert list -d runlocal.dev -i bu1
+Server Certificates for runlocal.dev/bu1:
+  NAME              EXPIRES     DAYS LEFT  CHAIN
+  ────────────────  ──────────  ─────────  ──────────
+  kong-gateway.crt  2027-09-26  364        <span class="ok">✓ OK</span></code></pre>
+      <p>See <a href="listing.html">Listing and verification</a> for the JSON output to use in scripts.</p>
+
+      <h2 id="where-files-go">Where the files go</h2>
+      <p>Everything lives under one working directory, resolved in this order:</p>
+      <ol>
+        <li>the <code>--workdir</code> flag, accepted by every command;</li>
+        <li>the <code>HOMEPKI_WORKDIR</code> environment variable;</li>
+        <li><code>~/.homepki</code>.</li>
+      </ol>
+<pre><code>~/.homepki/
+└── runlocal-dev/                          <span class="c"># the domain, dots replaced by dashes</span>
+    ├── ca/
+    │   ├── runlocal-dev-root-ca.crt
+    │   └── private/runlocal-dev-root-ca.key
+    └── bu1/                               <span class="c"># an intermediate CA</span>
+        ├── bu1-intermediate-ca.crt
+        ├── bu1-intermediate-ca-chain.crt  <span class="c"># intermediate + root: the CA bundle</span>
+        ├── private/bu1-intermediate-ca.key
+        ├── server-tls/kong-gateway.crt, kong-gateway.key
+        └── client-tls/my-client.crt, my-client.key</code></pre>
+      <p>Private keys are unencrypted PKCS#8 PEM files with mode <code>0600</code>, in <code>private/</code> directories with mode <code>0700</code>. Treat the working directory as sensitive and keep it out of version control. Revocation lists and PKCS#12 bundles appear in the same tree when you create them; <a href="hierarchy.html#file-layout">Certificate hierarchy</a> lists every file.</p>
+
+      <h2 id="throwaway-pki">A throwaway PKI for a script</h2>
+      <p>There is no delete command: removing a PKI means deleting its directory. For tests and demos, point <code>HOMEPKI_WORKDIR</code> at a temporary directory:</p>
+<pre><code>export HOMEPKI_WORKDIR=$(mktemp -d)
+trap 'rm -rf "$HOMEPKI_WORKDIR"' EXIT
+
+homepki root-ca         -d runlocal.dev
+homepki intermediate-ca -d runlocal.dev -n bu1
+homepki server-cert     -d runlocal.dev -i bu1 -s gw</code></pre>
+      <p>A fresh directory per run also avoids the overwrite protection: generate commands refuse to replace existing files unless you pass <code>--force</code>.</p>
+
+      <h2 id="next-steps">Next steps</h2>
+      <ul>
+        <li><a href="trust.html">Trust the root CA</a> so browsers, curl and Java accept the certificates.</li>
+        <li><a href="leaf-certificates.html">Server and client certificates</a>: SANs, key types, validity and PKCS#12.</li>
+        <li><a href="using-certificates.html">Using the certificates</a> in Kubernetes, nginx and curl.</li>
+        <li><a href="agent-skill.html">Install the Agent Skill</a> so AI coding tools use homepki for you.</li>
+      </ul>
+
+      <!-- pager --><div class="doc-pager">
+        <a href="./"><span class="dir">← Previous</span><span class="ttl">Overview</span></a>
+        <a class="next" href="comparison.html"><span class="dir">Next →</span><span class="ttl">vs. other tools</span></a>
+      </div><!-- /pager -->
+    </article>
+  </main>
+</div>
+
+<!-- footer --><footer class="footer">
+  <div class="container">
+    <p>MIT licensed · <a href="https://github.com/bcollard/homepki">Source</a> · <a href="https://github.com/bcollard/homepki/releases">Releases</a> · <a href="https://github.com/bcollard/homepki/issues">Issues</a> · Built by <a href="https://github.com/bcollard">Baptiste Collard</a></p>
+  </div>
+</footer><!-- /footer -->
+
+<script src="search-index.js"></script>
+<script src="../site.js"></script>
+</body>
+</html>

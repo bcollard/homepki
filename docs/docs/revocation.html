@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>try{var t=localStorage.getItem('homepki-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+
+<title>Revocation – homepki docs</title>
+<meta name="description" content="Revoke homepki leaf certificates with CRLs: the revoke and crl commands, the CRL files for nginx and OpenSSL, revocation reasons, CRL lifetime and limits.">
+<link rel="canonical" href="https://bcollard.github.io/homepki/docs/revocation.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="homepki">
+<meta property="og:url" content="https://bcollard.github.io/homepki/docs/revocation.html">
+<meta property="og:title" content="Revoking certificates with homepki">
+<meta property="og:description" content="File-based CRLs for every tier, for nginx and openssl verify -crl_check_all.">
+<meta name="theme-color" content="#f6faf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1513" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<!-- nav --><nav class="nav">
+  <a class="brand" href="../" aria-label="homepki home">
+    <img src="../mark.svg" width="28" height="28" alt="">
+    <strong>homepki</strong>
+  </a>
+  <div class="nav-search">
+    <input type="search" id="docsSearch" placeholder="Search docs…" aria-label="Search documentation" autocomplete="off">
+    <kbd class="nav-search-kbd">⌘K</kbd>
+    <ul class="docs-search-results" id="docsSearchResults" hidden></ul>
+  </div>
+  <div class="nav-right">
+    <a class="nav-home" href="../">Home</a>
+    <a class="nav-docs" href="../docs/">Docs</a>
+    <a class="nav-github" href="https://github.com/bcollard/homepki">GitHub</a>
+    <a class="nav-version" id="navVersion" href="https://github.com/bcollard/homepki/releases/latest" title="Latest release">v0.8.1</a>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle colour theme"><span class="sun">☀</span><span class="moon">☾</span><span class="auto">◐</span></button>
+  </div>
+</nav><!-- /nav -->
+
+<div class="docs-shell">
+  <!-- sidebar --><details class="docs-sidebar" id="docsSidebar">
+    <summary>Documentation menu</summary>
+    <div class="docs-nav-inner">
+      <div class="docs-nav-group">
+        <h5>Introduction</h5>
+        <ul class="docs-nav">
+          <li><a href="./">Overview</a></li>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="comparison.html">vs. other tools</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Issuing certificates</h5>
+        <ul class="docs-nav">
+          <li><a href="hierarchy.html">Certificate hierarchy</a></li>
+          <li><a href="leaf-certificates.html">Server and client certificates</a></li>
+          <li><a href="signing-csrs.html">Signing external CSRs</a></li>
+          <li><a href="listing.html">Listing and verification</a></li>
+          <li><a href="using-certificates.html">Using the certificates</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Security</h5>
+        <ul class="docs-nav">
+          <li><a href="name-constraints.html">Name constraints</a></li>
+          <li><a href="revocation.html" class="active" aria-current="page">Revocation</a></li>
+          <li><a href="trust.html">Trusting the root CA</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Reference</h5>
+        <ul class="docs-nav">
+          <li><a href="cli-reference.html">CLI reference</a></li>
+          <li><a href="go-package.html">Go package</a></li>
+          <li><a href="agent-skill.html">Agent Skill</a></li>
+          <li><a href="changelog.html">Changelog</a></li>
+        </ul>
+      </div>
+    </div>
+  </details><!-- /sidebar -->
+
+  <main class="docs-main">
+    <article class="docs-prose">
+      <!-- breadcrumb --><p class="breadcrumb"><a href="../">Home</a> › <a href="./">Docs</a> › Revocation</p><!-- /breadcrumb -->
+      <h1>Revocation</h1>
+      <p class="lead">Revoke a leaf by adding it to its intermediate's certificate revocation list, then give the CRL files to the servers that check them.</p>
+
+      <h2 id="revoke-a-leaf">Revoke a leaf</h2>
+      <p><code>homepki revoke</code> adds a leaf's serial number to its intermediate's certificate revocation list (CRL) and re-signs the CRLs. Name the certificate with exactly one of <code>--server</code>, <code>--client</code> or <code>--cert</code>:</p>
+<pre><code><span class="p">$</span> homepki revoke -d runlocal.dev -i bu1 --client my-client
+<span class="p">$</span> homepki revoke -d runlocal.dev -i bu1 --server kong-gateway --reason keyCompromise
+<span class="p">$</span> homepki revoke -d runlocal.dev -i bu1 --cert ./my-service.crt    <span class="c"># e.g. written by sign --out</span></code></pre>
+<pre><code><span class="p">$</span> homepki revoke -d runlocal.dev -i bu1 -c cli1 --reason keyCompromise
+Revoking cli1.bu1.runlocal.dev (serial bd8e8dda8f064b8ec14bcea02c35f62b) under runlocal.dev/bu1
+Wrote ~/.homepki/runlocal-dev/bu1/bu1-intermediate-ca.crl (1 revoked, next update 2027-09-26 12:21)
+Wrote ~/.homepki/runlocal-dev/ca/runlocal-dev-root-ca.crl
+Wrote ~/.homepki/runlocal-dev/bu1/bu1-crl-chain.crl
+Certificate revoked. Reload servers that read the CRL.</code></pre>
+      <ul>
+        <li>The certificate must have been issued by that intermediate; a certificate from another CA is refused.</li>
+        <li>Revoking a certificate twice prints <code>… is already revoked (since &lt;date&gt;)</code> and exits 0 without writing anything.</li>
+        <li>The certificate and key files stay in place. Re-issuing the name with <code>--force</code> gives it a new serial number that is not revoked.</li>
+      </ul>
+
+      <h3 id="reasons">Revocation reasons</h3>
+      <p><code>--reason</code> takes an RFC 5280 reason name, case-insensitive. The default is <code>unspecified</code>, which omits the reason from the CRL entry.</p>
+      <table class="docs-table">
+        <thead><tr><th><code>--reason</code></th><th>Code</th></tr></thead>
+        <tbody>
+          <tr><td><code>unspecified</code></td><td>0</td></tr>
+          <tr><td><code>keyCompromise</code></td><td>1</td></tr>
+          <tr><td><code>cACompromise</code></td><td>2</td></tr>
+          <tr><td><code>affiliationChanged</code></td><td>3</td></tr>
+          <tr><td><code>superseded</code></td><td>4</td></tr>
+          <tr><td><code>cessationOfOperation</code></td><td>5</td></tr>
+          <tr><td><code>certificateHold</code></td><td>6</td></tr>
+          <tr><td><code>privilegeWithdrawn</code></td><td>9</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="crl-files">CRL files</h2>
+      <p>Both <code>revoke</code> and <code>crl</code> write three PEM files:</p>
+      <table class="docs-table">
+        <thead><tr><th>File</th><th>Content</th><th>Give it to</th></tr></thead>
+        <tbody>
+          <tr><td><code>&lt;int&gt;/&lt;int&gt;-intermediate-ca.crl</code></td><td>the intermediate's CRL, with every revoked leaf</td><td>a verifier that checks the leaf only</td></tr>
+          <tr><td><code>ca/&lt;root&gt;-root-ca.crl</code></td><td>the root's CRL, always empty</td><td>a verifier that wants one CRL file per CA</td></tr>
+          <tr><td><code>&lt;int&gt;/&lt;int&gt;-crl-chain.crl</code></td><td>both, intermediate first</td><td>nginx <code>ssl_crl</code>, <code>openssl verify -crl_check_all</code>: anything that checks every tier</td></tr>
+        </tbody>
+      </table>
+      <p>The CRL is the only record of revocations. There is no CA database: <code>revoke</code> reads the existing intermediate CRL, checks that the intermediate signed it, appends the entry and increments the CRL number.</p>
+
+      <h2 id="crl-command">Write CRLs before revoking anything</h2>
+      <p>A server configured with a CRL file refuses to start when the file is missing. <code>homepki crl</code> writes the three files with every revocation already recorded, or empty ones on a fresh intermediate:</p>
+<pre><code><span class="p">$</span> homepki crl -d runlocal.dev -i bu1
+<span class="p">$</span> homepki crl -d runlocal.dev -i bu1 --validity 7d</code></pre>
+
+      <h2 id="crl-lifetime">CRL lifetime</h2>
+      <p>Each CRL carries a <code>nextUpdate</code> time. OpenSSL-based servers reject a CRL past it with <code>CRL has expired</code>, which then rejects every client. The default is 365 days; <code>--validity</code> on <code>revoke</code> or <code>crl</code> changes it, as days (<code>90d</code>) or a duration (<code>24h</code>). It is capped at the issuing CA's expiry.</p>
+      <p>Re-run <code>homepki crl</code> before <code>nextUpdate</code> to re-sign the CRLs with a new date. Revocations are kept.</p>
+
+      <h2 id="list-output">Revoked leaves in list output</h2>
+      <p><code>server-cert list</code> and <code>client-cert list</code> read the intermediate's CRL and report revoked leaves as invalid:</p>
+<pre><code><span class="p">$</span> homepki client-cert list -d runlocal.dev -i bu1
+Client Certificates for runlocal.dev/bu1:
+  NAME      EXPIRES     DAYS LEFT  CHAIN
+  ────────  ──────────  ─────────  ──────────
+  cli1.crt  2027-09-26  364        <span class="no">✗ INVALID: revoked on 2026-09-26 (keyCompromise)</span></code></pre>
+      <p>In JSON the row has <code>"chain_valid": false</code> and <code>"chain_error": "revoked on 2026-09-26 (keyCompromise)"</code>. See <a href="listing.html">Listing and verification</a>.</p>
+
+      <h2 id="using-crls">Using the CRLs</h2>
+      <h3 id="openssl-verify">OpenSSL</h3>
+<pre><code><span class="p">$</span> openssl verify -crl_check_all \
+    -CAfile ~/.homepki/runlocal-dev/bu1/bu1-intermediate-ca-chain.crt \
+    -CRLfile ~/.homepki/runlocal-dev/bu1/bu1-crl-chain.crl \
+    -purpose sslclient ~/.homepki/runlocal-dev/bu1/client-tls/cli1.crt
+O=runlocal-dev, OU=bu1, CN=cli1.bu1.runlocal.dev
+<span class="no">error 23 at 0 depth lookup: certificate revoked</span>
+<span class="no">error ~/.homepki/runlocal-dev/bu1/client-tls/cli1.crt: verification failed</span></code></pre>
+      <p><code>-crl_check_all</code> needs a CRL for every CA in the chain, which is why the chain file carries the root's CRL too.</p>
+
+      <h3 id="nginx">nginx mTLS</h3>
+<pre><code>ssl_client_certificate /etc/nginx/pki/bu1-intermediate-ca-chain.crt;
+ssl_verify_client      on;
+ssl_verify_depth       2;
+ssl_crl                /etc/nginx/pki/bu1-crl-chain.crl;</code></pre>
+      <p>nginx checks the CRL of every CA in the chain, so give it the chain file. It reads the CRL at start-up: reload nginx after each <code>revoke</code> or <code>crl</code>.</p>
+
+      <h2 id="limits">Limits</h2>
+      <ul>
+        <li><strong>No CRL distribution point.</strong> Certificates do not carry a URL to fetch the CRL from. Hand the file to the server directly.</li>
+        <li><strong>No OCSP.</strong></li>
+        <li><strong>Intermediates cannot be revoked.</strong> The root CRL is always empty. Replace an intermediate with <code>intermediate-ca --force</code> instead.</li>
+        <li><strong>Deleting a CRL un-revokes everything in it.</strong> The next <code>revoke</code> or <code>crl</code> starts from an empty list.</li>
+        <li><strong><code>intermediate-ca --force</code> deletes that intermediate's CRLs</strong>, since the replaced key signed them. <code>root-ca --force</code> deletes the root CRL.</li>
+      </ul>
+
+      <!-- pager --><div class="doc-pager">
+        <a href="name-constraints.html"><span class="dir">← Previous</span><span class="ttl">Name constraints</span></a>
+        <a class="next" href="trust.html"><span class="dir">Next →</span><span class="ttl">Trusting the root CA</span></a>
+      </div><!-- /pager -->
+    </article>
+  </main>
+</div>
+
+<!-- footer --><footer class="footer">
+  <div class="container">
+    <p>MIT licensed · <a href="https://github.com/bcollard/homepki">Source</a> · <a href="https://github.com/bcollard/homepki/releases">Releases</a> · <a href="https://github.com/bcollard/homepki/issues">Issues</a> · Built by <a href="https://github.com/bcollard">Baptiste Collard</a></p>
+  </div>
+</footer><!-- /footer -->
+
+<script src="search-index.js"></script>
+<script src="../site.js"></script>
+</body>
+</html>

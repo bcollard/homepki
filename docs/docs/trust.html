@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>try{var t=localStorage.getItem('homepki-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+
+<title>Trusting the root CA – homepki docs</title>
+<meta name="description" content="Add a homepki root CA to the macOS or Linux system trust store, Firefox and Chrome NSS databases, and the Java cacerts keystore, and check which stores trust it.">
+<link rel="canonical" href="https://bcollard.github.io/homepki/docs/trust.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="homepki">
+<meta property="og:url" content="https://bcollard.github.io/homepki/docs/trust.html">
+<meta property="og:title" content="Trusting a homepki root CA">
+<meta property="og:description" content="System keychain or Linux anchors, Firefox/NSS and Java cacerts, with a status command for scripts.">
+<meta name="theme-color" content="#f6faf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1513" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<!-- nav --><nav class="nav">
+  <a class="brand" href="../" aria-label="homepki home">
+    <img src="../mark.svg" width="28" height="28" alt="">
+    <strong>homepki</strong>
+  </a>
+  <div class="nav-search">
+    <input type="search" id="docsSearch" placeholder="Search docs…" aria-label="Search documentation" autocomplete="off">
+    <kbd class="nav-search-kbd">⌘K</kbd>
+    <ul class="docs-search-results" id="docsSearchResults" hidden></ul>
+  </div>
+  <div class="nav-right">
+    <a class="nav-home" href="../">Home</a>
+    <a class="nav-docs" href="../docs/">Docs</a>
+    <a class="nav-github" href="https://github.com/bcollard/homepki">GitHub</a>
+    <a class="nav-version" id="navVersion" href="https://github.com/bcollard/homepki/releases/latest" title="Latest release">v0.8.1</a>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle colour theme"><span class="sun">☀</span><span class="moon">☾</span><span class="auto">◐</span></button>
+  </div>
+</nav><!-- /nav -->
+
+<div class="docs-shell">
+  <!-- sidebar --><details class="docs-sidebar" id="docsSidebar">
+    <summary>Documentation menu</summary>
+    <div class="docs-nav-inner">
+      <div class="docs-nav-group">
+        <h5>Introduction</h5>
+        <ul class="docs-nav">
+          <li><a href="./">Overview</a></li>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="comparison.html">vs. other tools</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Issuing certificates</h5>
+        <ul class="docs-nav">
+          <li><a href="hierarchy.html">Certificate hierarchy</a></li>
+          <li><a href="leaf-certificates.html">Server and client certificates</a></li>
+          <li><a href="signing-csrs.html">Signing external CSRs</a></li>
+          <li><a href="listing.html">Listing and verification</a></li>
+          <li><a href="using-certificates.html">Using the certificates</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Security</h5>
+        <ul class="docs-nav">
+          <li><a href="name-constraints.html">Name constraints</a></li>
+          <li><a href="revocation.html">Revocation</a></li>
+          <li><a href="trust.html" class="active" aria-current="page">Trusting the root CA</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Reference</h5>
+        <ul class="docs-nav">
+          <li><a href="cli-reference.html">CLI reference</a></li>
+          <li><a href="go-package.html">Go package</a></li>
+          <li><a href="agent-skill.html">Agent Skill</a></li>
+          <li><a href="changelog.html">Changelog</a></li>
+        </ul>
+      </div>
+    </div>
+  </details><!-- /sidebar -->
+
+  <main class="docs-main">
+    <article class="docs-prose">
+      <!-- breadcrumb --><p class="breadcrumb"><a href="../">Home</a> › <a href="./">Docs</a> › Trusting the root CA</p><!-- /breadcrumb -->
+      <h1>Trusting the root CA</h1>
+      <p class="lead">Add the root CA to the system, Firefox and Java trust stores, so browsers, curl and JVMs accept the certificates issued under it.</p>
+
+      <h2 id="commands">Commands</h2>
+<pre><code><span class="p">$</span> homepki trust install   -d runlocal.dev                   <span class="c"># every store available on this host</span>
+<span class="p">$</span> homepki trust install   -d runlocal.dev --store nss,java  <span class="c"># Firefox and Java only, no sudo</span>
+<span class="p">$</span> homepki trust status                                      <span class="c"># every root CA in the workdir</span>
+<span class="p">$</span> homepki trust status    -d runlocal.dev -o json
+<span class="p">$</span> homepki trust uninstall -d runlocal.dev</code></pre>
+      <p><code>install</code> and <code>uninstall</code> require <code>--domain</code>. <code>status</code> takes it optionally; without it, every root CA in the workdir is reported. All three take <code>--store</code>, repeatable or comma-separated.</p>
+
+      <h2 id="stores">Trust stores</h2>
+      <table class="docs-table">
+        <thead><tr><th><code>--store</code></th><th>Platform</th><th>Where the root goes</th><th>How</th></tr></thead>
+        <tbody>
+          <tr><td><code>system</code></td><td>macOS</td><td><code>/Library/Keychains/System.keychain</code></td><td><code>security add-trusted-cert -d -r trustRoot</code></td></tr>
+          <tr><td><code>system</code></td><td>Fedora, RHEL, CentOS</td><td><code>/etc/pki/ca-trust/source/anchors/homepki-&lt;root&gt;.crt</code></td><td>then <code>update-ca-trust extract</code></td></tr>
+          <tr><td><code>system</code></td><td>Debian, Ubuntu, Alpine</td><td><code>/usr/local/share/ca-certificates/homepki-&lt;root&gt;.crt</code></td><td>then <code>update-ca-certificates</code></td></tr>
+          <tr><td><code>system</code></td><td>Arch</td><td><code>/etc/ca-certificates/trust-source/anchors/homepki-&lt;root&gt;.crt</code></td><td>then <code>trust extract-compat</code></td></tr>
+          <tr><td><code>system</code></td><td>openSUSE</td><td><code>/usr/share/pki/trust/anchors/homepki-&lt;root&gt;.crt</code></td><td>then <code>update-ca-certificates</code></td></tr>
+          <tr><td><code>nss</code></td><td>macOS, Linux</td><td>every Firefox profile; on Linux also the Chrome/Chromium database <code>~/.pki/nssdb</code></td><td><code>certutil -A -t C,,</code>, nickname <code>homepki &lt;root&gt; root CA</code></td></tr>
+          <tr><td><code>java</code></td><td>macOS, Linux</td><td><code>$JAVA_HOME/lib/security/cacerts</code> (<code>jre/lib/security/cacerts</code> on JDK 8)</td><td><code>keytool -importcert</code>, alias <code>homepki-&lt;root&gt;</code></td></tr>
+        </tbody>
+      </table>
+      <p><code>&lt;root&gt;</code> is the root CA's literal name, for example <code>runlocal-dev</code>. On Linux the first anchor directory that exists, in the order above, is used.</p>
+
+      <h3 id="nss-databases">NSS databases</h3>
+      <p>homepki looks for databases in these places under your home directory, and uses those that hold <code>cert9.db</code> (or the legacy <code>cert8.db</code>):</p>
+      <ul>
+        <li><code>Library/Application Support/Firefox/Profiles/*</code> (Firefox on macOS)</li>
+        <li><code>.mozilla/firefox/*</code>, <code>snap/firefox/common/.mozilla/firefox/*</code>, <code>.var/app/org.mozilla.firefox/.mozilla/firefox/*</code> (Firefox on Linux, snap, Flatpak)</li>
+        <li><code>.pki/nssdb</code>, <code>snap/chromium/current/.pki/nssdb</code> (Chrome and Chromium on Linux)</li>
+      </ul>
+      <p><code>certutil</code> comes with NSS: <code>brew install nss</code>, <code>apt install libnss3-tools</code> or <code>dnf install nss-tools</code>. Restart Firefox after installing.</p>
+
+      <h2 id="store-selection">Which stores are used</h2>
+      <p>Without <code>--store</code>, homepki uses every store available on the host:</p>
+      <ul>
+        <li><strong>system</strong> on macOS, and on Linux when a known anchor directory exists;</li>
+        <li><strong>nss</strong> when at least one database is found and <code>certutil</code> is installed;</li>
+        <li><strong>java</strong> when <code>JAVA_HOME</code> is set and holds <code>bin/keytool</code> and a <code>cacerts</code> keystore.</li>
+      </ul>
+      <p>An unavailable store is skipped with a note, for example <code>Skipping nss: 1 Firefox/NSS database(s) found, but certutil is missing</code>. No note is printed when there is simply no Firefox profile or no <code>JAVA_HOME</code>.</p>
+      <p>A store named with <code>--store</code> must be available, or the command fails:</p>
+<pre><code><span class="p">$</span> homepki trust status -d runlocal.dev --store java
+<span class="no">Error: --store java: JAVA_HOME is not set</span></code></pre>
+
+      <h2 id="sudo">When sudo is needed</h2>
+      <table class="docs-table">
+        <thead><tr><th>Store</th><th>Needs root</th></tr></thead>
+        <tbody>
+          <tr><td><code>system</code></td><td>yes, on install and uninstall</td></tr>
+          <tr><td><code>nss</code></td><td>no: the databases belong to you</td></tr>
+          <tr><td><code>java</code></td><td>only when your user cannot write <code>cacerts</code></td></tr>
+        </tbody>
+      </table>
+      <p>homepki runs those commands under <code>sudo</code>, which may prompt for a password, unless it already runs as root (for example in a container). <code>status</code> never needs privileges and never prompts. In an unattended script, call <code>install</code> only when sudo is cached or passwordless, or use <code>--store nss,java</code>.</p>
+
+      <h2 id="install">Install and uninstall</h2>
+      <p><code>install</code> is idempotent: a store that already trusts the root is reported and skipped. After adding the root to a store, homepki checks it again and fails if the store still does not trust it.</p>
+<pre><code><span class="p">$</span> homepki trust install -d runlocal.dev --store nss,java
+nss    adding to ~/Library/Application Support/Firefox/Profiles/x1y2.default-release
+java   adding to /opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home/lib/security/cacerts
+Certificate was added to keystore
+Root CA for runlocal.dev is trusted in 2 store(s).
+Restart Firefox and Java processes to pick it up.
+Serve leaves with the intermediate chain file so clients can reach this root.</code></pre>
+      <p><code>uninstall</code> removes the root from each selected store and skips stores where it is not present. On macOS the certificate may remain in the System keychain without its trust setting; remove it with Keychain Access if you want it gone.</p>
+
+      <h2 id="status">Status</h2>
+<pre><code><span class="p">$</span> homepki trust status -d runlocal.dev
+Root CA trust:
+  runlocal-dev             <span class="no">✗ partly trusted</span>
+      <span class="ok">✓ system</span> /Library/Keychains/System.keychain
+      <span class="ok">✓ nss   </span> ~/Library/Application Support/Firefox/Profiles/x1y2.default-release
+      <span class="no">✗ java  </span> …/lib/security/cacerts (alias homepki-runlocal-dev not in the keystore)</code></pre>
+      <p>On macOS the system store is checked with <code>security verify-cert</code>. On Linux homepki reads the CA bundle files the distribution builds from its anchors, so it reports what Go, curl and OpenSSL see.</p>
+
+      <h3 id="status-json">JSON</h3>
+<pre><code><span class="p">$</span> homepki trust status -d runlocal.dev -o json
+[
+  {
+    "name": "runlocal-dev",
+    "certificate": "~/.homepki/runlocal-dev/ca/runlocal-dev-root-ca.crt",
+    "trusted": false,
+    "detail": "system: Cert Verify Result: CSSMERR_TP_NOT_TRUSTED",
+    "stores": [
+      {
+        "store": "system",
+        "location": "/Library/Keychains/System.keychain",
+        "trusted": false,
+        "detail": "Cert Verify Result: CSSMERR_TP_NOT_TRUSTED"
+      },
+      {
+        "store": "nss",
+        "location": "~/Library/Application Support/Firefox/Profiles/x1y2.default-release",
+        "trusted": false,
+        "detail": "certutil: could not find certificate named \"homepki runlocal-dev root CA\": PR_FILE_NOT_FOUND_ERROR: File not found"
+      }
+    ]
+  }
+]</code></pre>
+      <table class="docs-table">
+        <thead><tr><th>Field</th><th>Content</th></tr></thead>
+        <tbody>
+          <tr><td><code>name</code></td><td>the root CA's literal name, as <code>root-ca list</code> reports it</td></tr>
+          <tr><td><code>certificate</code></td><td>the root certificate that was checked</td></tr>
+          <tr><td><code>trusted</code></td><td><code>true</code> only when <strong>every</strong> store checked accepts the root</td></tr>
+          <tr><td><code>detail</code></td><td>the first failing store and its reason</td></tr>
+          <tr><td><code>stores[]</code></td><td>one entry per store: <code>store</code>, <code>location</code>, <code>trusted</code>, <code>detail</code></td></tr>
+        </tbody>
+      </table>
+      <div class="callout"><span class="ico">ℹ</span><p>Pass the same <code>--store</code> to <code>status</code> that you used for <code>install</code>. Otherwise a store you never installed into, such as a Firefox profile, makes the top-level <code>trusted</code> false.</p></div>
+
+      <h2 id="script-example">Script example</h2>
+<pre><code><span class="c"># install into Firefox only when it is not trusted there yet</span>
+homepki trust status -d runlocal.dev --store nss -o json | jq -e '.[0].trusted' &gt;/dev/null \
+  || homepki trust install -d runlocal.dev --store nss</code></pre>
+
+      <h2 id="chain-file">Serve the chain file</h2>
+      <p>Trusting the root is not enough on its own. A server must present the leaf followed by <code>&lt;intermediate&gt;-intermediate-ca-chain.crt</code>, or clients cannot build the path from the leaf to the trusted root. See <a href="using-certificates.html">Using the certificates</a>.</p>
+
+      <h2 id="constrain-first">Constrain the root first</h2>
+      <p>A trusted root can vouch for any name. Restrict it to your own domain with a <a href="name-constraints.html">name constraint</a> before installing it, so a leaked key cannot impersonate other sites.</p>
+
+      <h2 id="windows">Windows</h2>
+      <p>Windows is not supported: homepki ships macOS and Linux binaries only, and <code>trust</code> has no Windows store.</p>
+
+      <!-- pager --><div class="doc-pager">
+        <a href="revocation.html"><span class="dir">← Previous</span><span class="ttl">Revocation</span></a>
+        <a class="next" href="cli-reference.html"><span class="dir">Next →</span><span class="ttl">CLI reference</span></a>
+      </div><!-- /pager -->
+    </article>
+  </main>
+</div>
+
+<!-- footer --><footer class="footer">
+  <div class="container">
+    <p>MIT licensed · <a href="https://github.com/bcollard/homepki">Source</a> · <a href="https://github.com/bcollard/homepki/releases">Releases</a> · <a href="https://github.com/bcollard/homepki/issues">Issues</a> · Built by <a href="https://github.com/bcollard">Baptiste Collard</a></p>
+  </div>
+</footer><!-- /footer -->
+
+<script src="search-index.js"></script>
+<script src="../site.js"></script>
+</body>
+</html>

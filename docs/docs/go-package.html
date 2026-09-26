@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>try{var t=localStorage.getItem('homepki-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+
+<title>Go package – homepki docs</title>
+<meta name="description" content="Use github.com/bcollard/homepki/pkg/pki to issue root, intermediate and leaf certificates from Go code, with name constraints, chain verification, CRLs and PKCS#12.">
+<link rel="canonical" href="https://bcollard.github.io/homepki/docs/go-package.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="homepki">
+<meta property="og:url" content="https://bcollard.github.io/homepki/docs/go-package.html">
+<meta property="og:title" content="homepki Go package">
+<meta property="og:description" content="Issue and verify a three-tier certificate hierarchy from Go code with pkg/pki.">
+<meta name="theme-color" content="#f6faf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1513" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<!-- nav --><nav class="nav">
+  <a class="brand" href="../" aria-label="homepki home">
+    <img src="../mark.svg" width="28" height="28" alt="">
+    <strong>homepki</strong>
+  </a>
+  <div class="nav-search">
+    <input type="search" id="docsSearch" placeholder="Search docs…" aria-label="Search documentation" autocomplete="off">
+    <kbd class="nav-search-kbd">⌘K</kbd>
+    <ul class="docs-search-results" id="docsSearchResults" hidden></ul>
+  </div>
+  <div class="nav-right">
+    <a class="nav-home" href="../">Home</a>
+    <a class="nav-docs" href="../docs/">Docs</a>
+    <a class="nav-github" href="https://github.com/bcollard/homepki">GitHub</a>
+    <a class="nav-version" id="navVersion" href="https://github.com/bcollard/homepki/releases/latest" title="Latest release">v0.8.1</a>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle colour theme"><span class="sun">☀</span><span class="moon">☾</span><span class="auto">◐</span></button>
+  </div>
+</nav><!-- /nav -->
+
+<div class="docs-shell">
+  <!-- sidebar --><details class="docs-sidebar" id="docsSidebar">
+    <summary>Documentation menu</summary>
+    <div class="docs-nav-inner">
+      <div class="docs-nav-group">
+        <h5>Introduction</h5>
+        <ul class="docs-nav">
+          <li><a href="./">Overview</a></li>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="comparison.html">vs. other tools</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Issuing certificates</h5>
+        <ul class="docs-nav">
+          <li><a href="hierarchy.html">Certificate hierarchy</a></li>
+          <li><a href="leaf-certificates.html">Server and client certificates</a></li>
+          <li><a href="signing-csrs.html">Signing external CSRs</a></li>
+          <li><a href="listing.html">Listing and verification</a></li>
+          <li><a href="using-certificates.html">Using the certificates</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Security</h5>
+        <ul class="docs-nav">
+          <li><a href="name-constraints.html">Name constraints</a></li>
+          <li><a href="revocation.html">Revocation</a></li>
+          <li><a href="trust.html">Trusting the root CA</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Reference</h5>
+        <ul class="docs-nav">
+          <li><a href="cli-reference.html">CLI reference</a></li>
+          <li><a href="go-package.html" class="active" aria-current="page">Go package</a></li>
+          <li><a href="agent-skill.html">Agent Skill</a></li>
+          <li><a href="changelog.html">Changelog</a></li>
+        </ul>
+      </div>
+    </div>
+  </details><!-- /sidebar -->
+
+  <main class="docs-main">
+    <article class="docs-prose">
+      <!-- breadcrumb --><p class="breadcrumb"><a href="../">Home</a> › <a href="./">Docs</a> › Go package</p><!-- /breadcrumb -->
+      <h1>Go package</h1>
+      <p class="lead">The CLI is built on <code>github.com/bcollard/homepki/pkg/pki</code>. Import it to issue and verify certificates in-process, for example in a test harness or another CLI, without writing files or calling the binary.</p>
+
+      <div class="docs-toc">
+        <p class="docs-toc-title">On this page</p>
+        <ul>
+          <li><a href="#install">Install</a></li>
+          <li><a href="#issue-a-hierarchy">Issue a hierarchy</a></li>
+          <li><a href="#name-constraints">Name constraints</a></li>
+          <li><a href="#verification">Verification</a></li>
+          <li><a href="#reading-and-writing-files">Reading and writing files</a></li>
+          <li><a href="#revocation-lists">Revocation lists</a></li>
+          <li><a href="#pkcs12">PKCS#12</a></li>
+          <li><a href="#trust-store-helpers">Trust store helpers</a></li>
+          <li><a href="#api-summary">API summary</a></li>
+        </ul>
+      </div>
+
+      <h2 id="install">Install</h2>
+<pre><code><span class="p">$</span> go get github.com/bcollard/homepki@v0.8.0</code></pre>
+      <p>The package has no cobra dependency. It uses the standard library for keys, signing and verification, and <code>software.sslmate.com/src/go-pkcs12</code> for PKCS#12 output. The API follows the CLI's releases; there is no separate compatibility promise before v1.</p>
+
+      <h2 id="issue-a-hierarchy">Issue a hierarchy</h2>
+      <p>This program creates a root CA limited to <code>.klimax.internal</code>, an intermediate under it and a 24-hour server leaf, verifies the chain, and writes the key, the leaf and a CA bundle.</p>
+<pre><code>package main
+
+import (
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"log"
+	"time"
+
+	"github.com/bcollard/homepki/pkg/pki"
+)
+
+func main() {
+	<span class="c">// Root CA, limited to names under .klimax.internal.</span>
+	rootKey, err := pki.GenerateKey("ecdsa")
+	if err != nil {
+		log.Fatal(err)
+	}
+	nc := pki.NameConstraints{}.PermitDNS(".klimax.internal")
+	root, err := pki.SelfSignRoot(rootKey,
+		pkix.Name{Organization: []string{"klimax-internal"}, CommonName: "klimax.internal"},
+		nc, 0) <span class="c">// 0 = the default, 2190 days</span>
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	<span class="c">// Intermediate CA signed by the root.</span>
+	interKey, err := pki.GenerateKey("ecdsa")
+	if err != nil {
+		log.Fatal(err)
+	}
+	inter, err := pki.SignIntermediate(interKey.Public(),
+		pkix.Name{Organization: []string{"klimax-internal"}, OrganizationalUnit: []string{"bu1"}, CommonName: "bu1.klimax.internal"},
+		pki.NameConstraints{}, 0, root, rootKey)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	<span class="c">// Server leaf valid for 24 hours.</span>
+	leafKey, err := pki.GenerateKey("ecdsa")
+	if err != nil {
+		log.Fatal(err)
+	}
+	sans, err := pki.ParseSANs([]string{"gw.bu1.klimax.internal", "10.0.0.5"})
+	if err != nil {
+		log.Fatal(err)
+	}
+	leaf, err := pki.SignLeaf(leafKey.Public(),
+		pkix.Name{CommonName: "gw.bu1.klimax.internal"},
+		sans, pki.ServerLeaf, 24*time.Hour, inter, interKey)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	<span class="c">// Verify before writing: this is where name constraints are enforced.</span>
+	if err := pki.VerifyChain(leaf, inter, root, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}); err != nil {
+		log.Fatal(err)
+	}
+
+	if err := pki.WriteKey("gw.key", leafKey); err != nil {
+		log.Fatal(err)
+	}
+	if err := pki.WriteCerts("gw.crt", leaf); err != nil {
+		log.Fatal(err)
+	}
+	if err := pki.WriteCerts("ca-chain.crt", inter, root); err != nil {
+		log.Fatal(err)
+	}
+}</code></pre>
+      <ul>
+        <li><strong>Key types</strong> are the <code>--key-type</code> values: <code>rsa</code> (2048-bit), <code>ecdsa</code>/<code>ecdsa-p256</code>, <code>ecdsa-p384</code>, <code>ecdsa-p521</code>, <code>ed25519</code>. <code>KeyTypes()</code> lists them and <code>ValidateKeyType</code> checks one.</li>
+        <li><strong>Validity</strong> is a <code>time.Duration</code>; <code>0</code> selects the default (<code>CAValidityDays</code> = 2190, <code>LeafValidityDays</code> = 365). A certificate is capped at its issuer's <code>NotAfter</code>. <code>ParseValidity("90d", def)</code> reads the CLI's format and <code>Days(n)</code> converts days.</li>
+        <li><strong>SANs</strong>: <code>ParseSANs</code> takes the <code>--san</code> syntax. Bare values become IP or DNS, and <code>DNS:</code>, <code>IP:</code>, <code>email:</code>, <code>URI:</code> force a type. You can also fill <code>pki.SANs{DNS, IPs, Emails, URIs}</code> directly.</li>
+        <li><strong>Leaf kind</strong>: <code>pki.ServerLeaf</code> or <code>pki.ClientLeaf</code> sets the extended key usage. RSA server leaves also get <code>keyEncipherment</code>.</li>
+        <li>Serials are random 128-bit values, <code>NotBefore</code> is 5 minutes in the past, and the signature algorithm follows the issuer's key.</li>
+      </ul>
+      <div class="callout"><span class="ico">ℹ</span><p>The package does not impose the CLI's naming. The CLI derives <code>O</code>, <code>OU</code> and <code>CN</code> from the domain and names, but <code>SignLeaf</code> signs whatever <code>pkix.Name</code> you pass. <code>ValidateCSRSubject</code> is the policy check the <code>sign</code> command applies to requests.</p></div>
+
+      <h2 id="name-constraints">Name constraints</h2>
+      <p>Build <code>NameConstraints</code> in code with the <code>Permit*</code> and <code>Exclude*</code> methods. Each returns a copy, so calls chain and never modify the value they start from.</p>
+<pre><code>lan, err := pki.ParseIPRange("10.0.0.0/8") <span class="c">// CIDR or address/netmask</span>
+if err != nil {
+	log.Fatal(err)
+}
+nc := pki.NameConstraints{}.
+	PermitDNS(".klimax.internal").
+	ExcludeDNS("admin.klimax.internal").
+	PermitIP(lan)</code></pre>
+      <p>The methods are <code>PermitDNS</code>, <code>ExcludeDNS</code>, <code>PermitIP</code>, <code>ExcludeIP</code>, <code>PermitEmail</code>, <code>ExcludeEmail</code>, <code>PermitURI</code> and <code>ExcludeURI</code>. <code>ParseNameConstraints</code> accepts the openssl syntax of <code>--name-constraint</code> instead and produces the same value. The extension is written as critical. Constraints are checked when you verify, not when you sign: use <code>IsNameConstraintViolation(err)</code> to recognise that failure from <code>VerifyChain</code>.</p>
+
+      <h2 id="verification">Verification</h2>
+      <table class="docs-table">
+        <thead><tr><th>Function</th><th>Checks</th></tr></thead>
+        <tbody>
+          <tr><td><code>VerifyRoot(root)</code></td><td>A CA certificate, signed by its own key, valid now.</td></tr>
+          <tr><td><code>VerifyIntermediate(inter, root)</code></td><td>A CA certificate signed by <code>root</code>, valid now. The root's name constraints apply to the intermediate's names.</td></tr>
+          <tr><td><code>VerifyChain(leaf, inter, root, ekus)</code></td><td>The leaf chains to the root through the intermediate, with the given extended key usages and every name constraint.</td></tr>
+        </tbody>
+      </table>
+      <p>All three return an error for a <code>nil</code> certificate instead of panicking. <code>VerifyRootCert</code>, <code>VerifyIntermediateCert</code> and <code>VerifyLeafCert</code> do the same checks from file paths. <code>CheckKeyPair(cert, key)</code> reports a key that does not belong to a certificate.</p>
+
+      <h2 id="reading-and-writing-files">Reading and writing files</h2>
+      <ul>
+        <li><code>LoadCert(path)</code> returns the first certificate in a PEM file. <code>LoadCerts(path)</code> returns all of them in file order, for a chain file such as <code>bu1-intermediate-ca-chain.crt</code> (intermediate, then root). Both skip text and PEM blocks of other types.</li>
+        <li><code>LoadKey(path)</code> reads PKCS#8, PKCS#1 (RSA) or SEC 1 (EC) PEM keys.</li>
+        <li><code>WriteKey(path, key)</code> writes an unencrypted PKCS#8 PEM file with mode <code>0600</code>. <code>WriteCerts(path, certs...)</code> writes one or more certificates in order with mode <code>0644</code>.</li>
+        <li><code>LoadCSR</code>, <code>SANsFromCSR</code> and <code>ValidateCSRSubject</code> cover requests made elsewhere.</li>
+      </ul>
+<pre><code>chain, err := pki.LoadCerts("bu1-intermediate-ca-chain.crt")
+if err != nil {
+	log.Fatal(err)
+}
+err = pki.VerifyIntermediate(chain[0], chain[1])</code></pre>
+
+      <h2 id="revocation-lists">Revocation lists</h2>
+      <p><code>SignCRL</code> issues a new CRL holding the entries of the previous one (or <code>nil</code>) plus new ones, with the next CRL number. <code>nextUpdate</code> is the validity from now, capped at the issuer's expiry.</p>
+<pre><code>prev, err := pki.LoadCRL("bu1-intermediate-ca.crl", inter) <span class="c">// nil, nil when the file does not exist</span>
+if err != nil {
+	log.Fatal(err)
+}
+entry := x509.RevocationListEntry{SerialNumber: leaf.SerialNumber, RevocationTime: time.Now(), ReasonCode: 1}
+crl, err := pki.SignCRL(prev, []x509.RevocationListEntry{entry}, 0, inter, interKey)
+if err != nil {
+	log.Fatal(err)
+}
+err = pki.WriteCRLs("bu1-intermediate-ca.crl", crl)</code></pre>
+      <p><code>LoadCRL</code> also checks that the issuer signed the file. <code>FindRevoked(crl, serial)</code> returns the matching entry or <code>nil</code>. <code>ParseRevocationReason</code>, <code>RevocationReasonName</code> and <code>RevocationReasons</code> map RFC 5280 reason names to codes.</p>
+
+      <h2 id="pkcs12">PKCS#12</h2>
+<pre><code>err := pki.WritePKCS12("gw.p12", leafKey, leaf, []*x509.Certificate{inter, root}, pki.DefaultPKCS12Password)</code></pre>
+      <p>The file holds the key, the leaf and the chain, with mode <code>0600</code>. It uses the 3DES/SHA-1 encoding that Java, macOS Keychain, Windows and OpenSSL 3 read without extra options. <code>DefaultPKCS12Password</code> is <code>changeit</code>.</p>
+
+      <h2 id="trust-store-helpers">Trust store helpers</h2>
+      <p>The functions behind <code>homepki trust</code> build commands without running them, so you can run them yourself or inspect them in tests:</p>
+      <ul>
+        <li><strong>macOS</strong>: <code>MacOSTrustInstallArgs</code>, <code>MacOSTrustUninstallArgs</code>, <code>MacOSTrustStatusArgs</code> (the <code>security</code> command).</li>
+        <li><strong>Linux</strong>: <code>DetectLinuxStore()</code> returns a <code>LinuxStore</code> whose <code>AnchorPath</code>, <code>InstallCommands</code> and <code>UninstallCommands</code> cover Debian, Fedora, Arch and openSUSE layouts. <code>SystemTrusts(cert)</code> checks the platform store; on Linux it rereads the bundle files on each call.</li>
+        <li><strong>NSS</strong>: <code>NSSDatabases(home)</code>, <code>FindCertutil()</code>, <code>NSSNickname</code>, <code>NSSInstallArgs</code>, <code>NSSUninstallArgs</code>, <code>NSSStatusArgs</code>.</li>
+        <li><strong>Java</strong>: <code>JavaTrustStore(javaHome)</code>, <code>JavaAlias</code>, <code>JavaInstallArgs</code>, <code>JavaUninstallArgs</code>, <code>JavaStatusArgs</code>, <code>JavaStorePassword</code>.</li>
+        <li><code>Sudo(argv)</code> prefixes <code>sudo</code> unless the process runs as root. <code>RunInteractive</code> and <code>RunQuiet</code> execute a command.</li>
+      </ul>
+
+      <h2 id="api-summary">API summary</h2>
+      <table class="docs-table">
+        <thead><tr><th>Area</th><th>Functions and types</th></tr></thead>
+        <tbody>
+          <tr><td>Keys</td><td><code>GenerateKey</code>, <code>ValidateKeyType</code>, <code>KeyTypes</code>, <code>WriteKey</code>, <code>LoadKey</code>, <code>CheckKeyPair</code></td></tr>
+          <tr><td>Issuance</td><td><code>SelfSignRoot</code>, <code>SignIntermediate</code>, <code>SignLeaf</code>, <code>LeafKind</code> (<code>ServerLeaf</code>, <code>ClientLeaf</code>), <code>SANs</code>, <code>ParseSANs</code>, <code>ParseValidity</code>, <code>Days</code>, <code>CAValidityDays</code>, <code>LeafValidityDays</code></td></tr>
+          <tr><td>Name constraints</td><td><code>NameConstraints</code>, <code>Permit*</code>/<code>Exclude*</code>, <code>ParseNameConstraints</code>, <code>ParseIPRange</code>, <code>IsNameConstraintViolation</code></td></tr>
+          <tr><td>Verification</td><td><code>VerifyRoot</code>, <code>VerifyIntermediate</code>, <code>VerifyChain</code>, <code>VerifyRootCert</code>, <code>VerifyIntermediateCert</code>, <code>VerifyLeafCert</code>, <code>GetCertExpiry</code></td></tr>
+          <tr><td>Files</td><td><code>LoadCert</code>, <code>LoadCerts</code>, <code>WriteCerts</code>, <code>CreateDirectory</code>, <code>CreatePrivateDirectory</code>, <code>GetRootCALiteralName</code></td></tr>
+          <tr><td>Requests</td><td><code>LoadCSR</code>, <code>SANsFromCSR</code>, <code>ValidateCSRSubject</code>, <code>LeafNameFromCN</code></td></tr>
+          <tr><td>Revocation</td><td><code>SignCRL</code>, <code>LoadCRL</code>, <code>WriteCRLs</code>, <code>FindRevoked</code>, <code>ParseRevocationReason</code>, <code>RevocationReasonName</code>, <code>RevocationReasons</code>, <code>CRLValidityDays</code></td></tr>
+          <tr><td>PKCS#12</td><td><code>WritePKCS12</code>, <code>DefaultPKCS12Password</code></td></tr>
+          <tr><td>Trust stores</td><td><code>SystemTrusts</code>, <code>DetectLinuxStore</code>, <code>LinuxStore</code>, <code>NSS*</code>, <code>FindCertutil</code>, <code>Java*</code>, <code>MacOSTrust*Args</code>, <code>Sudo</code>, <code>IsWritable</code></td></tr>
+        </tbody>
+      </table>
+      <p>Full signatures: <code>go doc -all github.com/bcollard/homepki/pkg/pki</code>, or <a href="https://pkg.go.dev/github.com/bcollard/homepki/pkg/pki">pkg.go.dev</a>.</p>
+
+      <!-- pager --><div class="doc-pager">
+        <a href="cli-reference.html"><span class="dir">← Previous</span><span class="ttl">CLI reference</span></a>
+        <a class="next" href="agent-skill.html"><span class="dir">Next →</span><span class="ttl">Agent Skill</span></a>
+      </div><!-- /pager -->
+    </article>
+  </main>
+</div>
+
+<!-- footer --><footer class="footer">
+  <div class="container">
+    <p>MIT licensed · <a href="https://github.com/bcollard/homepki">Source</a> · <a href="https://github.com/bcollard/homepki/releases">Releases</a> · <a href="https://github.com/bcollard/homepki/issues">Issues</a> · Built by <a href="https://github.com/bcollard">Baptiste Collard</a></p>
+  </div>
+</footer><!-- /footer -->
+
+<script src="search-index.js"></script>
+<script src="../site.js"></script>
+</body>
+</html>

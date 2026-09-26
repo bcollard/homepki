@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>try{var t=localStorage.getItem('homepki-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+
+<title>CLI reference – homepki docs</title>
+<meta name="description" content="Every homepki command and flag: root-ca, intermediate-ca, server-cert, client-cert, sign, revoke, crl, trust, skill and version, with defaults and examples.">
+<link rel="canonical" href="https://bcollard.github.io/homepki/docs/cli-reference.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="homepki">
+<meta property="og:url" content="https://bcollard.github.io/homepki/docs/cli-reference.html">
+<meta property="og:title" content="homepki CLI reference">
+<meta property="og:description" content="Every homepki command and flag, with defaults and examples.">
+<meta name="theme-color" content="#f6faf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1513" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<!-- nav --><nav class="nav">
+  <a class="brand" href="../" aria-label="homepki home">
+    <img src="../mark.svg" width="28" height="28" alt="">
+    <strong>homepki</strong>
+  </a>
+  <div class="nav-search">
+    <input type="search" id="docsSearch" placeholder="Search docs…" aria-label="Search documentation" autocomplete="off">
+    <kbd class="nav-search-kbd">⌘K</kbd>
+    <ul class="docs-search-results" id="docsSearchResults" hidden></ul>
+  </div>
+  <div class="nav-right">
+    <a class="nav-home" href="../">Home</a>
+    <a class="nav-docs" href="../docs/">Docs</a>
+    <a class="nav-github" href="https://github.com/bcollard/homepki">GitHub</a>
+    <a class="nav-version" id="navVersion" href="https://github.com/bcollard/homepki/releases/latest" title="Latest release">v0.8.1</a>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle colour theme"><span class="sun">☀</span><span class="moon">☾</span><span class="auto">◐</span></button>
+  </div>
+</nav><!-- /nav -->
+
+<div class="docs-shell">
+  <!-- sidebar --><details class="docs-sidebar" id="docsSidebar">
+    <summary>Documentation menu</summary>
+    <div class="docs-nav-inner">
+      <div class="docs-nav-group">
+        <h5>Introduction</h5>
+        <ul class="docs-nav">
+          <li><a href="./">Overview</a></li>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="comparison.html">vs. other tools</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Issuing certificates</h5>
+        <ul class="docs-nav">
+          <li><a href="hierarchy.html">Certificate hierarchy</a></li>
+          <li><a href="leaf-certificates.html">Server and client certificates</a></li>
+          <li><a href="signing-csrs.html">Signing external CSRs</a></li>
+          <li><a href="listing.html">Listing and verification</a></li>
+          <li><a href="using-certificates.html">Using the certificates</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Security</h5>
+        <ul class="docs-nav">
+          <li><a href="name-constraints.html">Name constraints</a></li>
+          <li><a href="revocation.html">Revocation</a></li>
+          <li><a href="trust.html">Trusting the root CA</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Reference</h5>
+        <ul class="docs-nav">
+          <li><a href="cli-reference.html" class="active" aria-current="page">CLI reference</a></li>
+          <li><a href="go-package.html">Go package</a></li>
+          <li><a href="agent-skill.html">Agent Skill</a></li>
+          <li><a href="changelog.html">Changelog</a></li>
+        </ul>
+      </div>
+    </div>
+  </details><!-- /sidebar -->
+
+  <main class="docs-main">
+    <article class="docs-prose">
+      <!-- breadcrumb --><p class="breadcrumb"><a href="../">Home</a> › <a href="./">Docs</a> › CLI reference</p><!-- /breadcrumb -->
+      <h1>CLI reference</h1>
+      <p class="lead">Every command and flag, as <code>homepki &lt;command&gt; --help</code> prints them in v0.8.0.</p>
+
+      <div class="docs-toc">
+        <p class="docs-toc-title">On this page</p>
+        <ul>
+          <li><a href="#commands">Commands</a></li>
+          <li><a href="#global-flags">Global flags</a></li>
+          <li><a href="#errors-and-exit-codes">Errors and exit codes</a></li>
+          <li><a href="#root-ca">root-ca</a></li>
+          <li><a href="#intermediate-ca">intermediate-ca</a></li>
+          <li><a href="#server-cert">server-cert</a></li>
+          <li><a href="#client-cert">client-cert</a></li>
+          <li><a href="#list">list subcommands</a></li>
+          <li><a href="#sign">sign</a></li>
+          <li><a href="#revoke">revoke</a></li>
+          <li><a href="#crl">crl</a></li>
+          <li><a href="#trust">trust</a></li>
+          <li><a href="#skill">skill</a></li>
+          <li><a href="#version">version</a></li>
+        </ul>
+      </div>
+
+      <h2 id="commands">Commands</h2>
+      <table class="docs-table">
+        <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><a href="#root-ca"><code>root-ca</code></a></td><td>Generate a self-signed Root CA. <code>root-ca list</code> lists them.</td></tr>
+          <tr><td><a href="#intermediate-ca"><code>intermediate-ca</code></a></td><td>Generate an Intermediate CA signed by a Root CA, with its chain file.</td></tr>
+          <tr><td><a href="#server-cert"><code>server-cert</code></a></td><td>Generate a <code>serverAuth</code> certificate and key under an Intermediate CA.</td></tr>
+          <tr><td><a href="#client-cert"><code>client-cert</code></a></td><td>Generate a <code>clientAuth</code> certificate and key under an Intermediate CA.</td></tr>
+          <tr><td><a href="#sign"><code>sign</code></a></td><td>Sign a certificate signing request generated elsewhere.</td></tr>
+          <tr><td><a href="#revoke"><code>revoke</code></a></td><td>Revoke a leaf and re-sign the CRLs.</td></tr>
+          <tr><td><a href="#crl"><code>crl</code></a></td><td>Write or re-sign the CRLs without revoking anything.</td></tr>
+          <tr><td><a href="#trust"><code>trust</code></a></td><td>Install, remove or check a Root CA in the system, Firefox/NSS and Java trust stores.</td></tr>
+          <tr><td><a href="#skill"><code>skill</code></a></td><td>Install the Agent Skill for AI coding tools.</td></tr>
+          <tr><td><a href="#version"><code>version</code></a></td><td>Print the version, commit and build date.</td></tr>
+          <tr><td><code>completion</code></td><td>Generate a shell completion script (cobra built-in): <code>homepki completion zsh</code>.</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="global-flags">Global flags</h2>
+      <table class="docs-table">
+        <thead><tr><th>Flag</th><th>Short</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>--workdir</code></td><td></td><td><code>$HOMEPKI_WORKDIR</code>, then <code>~/.homepki</code></td><td>Working directory holding every PKI. Accepted by every command.</td></tr>
+          <tr><td><code>--help</code></td><td><code>-h</code></td><td></td><td>Help for any command.</td></tr>
+          <tr><td><code>--version</code></td><td><code>-v</code></td><td></td><td>Print the version (root command only).</td></tr>
+        </tbody>
+      </table>
+      <p>The working directory is resolved in this order: <code>--workdir</code>, then the <code>HOMEPKI_WORKDIR</code> environment variable, then <code>~/.homepki</code>. In a script that runs several commands, exporting <code>HOMEPKI_WORKDIR</code> once is shorter than repeating the flag.</p>
+
+      <h2 id="errors-and-exit-codes">Errors and exit codes</h2>
+      <ul>
+        <li>A successful command exits <code>0</code>. Any failure exits <code>1</code>.</li>
+        <li>An unknown flag, or a value a typed flag cannot parse, prints the error followed by the command's usage.</li>
+        <li>Every other error prints on its own, without usage: a missing required flag, existing material without <code>--force</code>, a missing tier, a name-constraint violation, a failed <code>sudo</code>.</li>
+        <li>Generate commands print what they do and each file written on stdout. Errors go to stderr. In scripts, rely on the exit code and check results with <code>list -o json</code>.</li>
+      </ul>
+
+      <h2 id="root-ca">root-ca</h2>
+      <p>Generate a self-signed Root CA for a domain. The certificate and key go to <code>&lt;workdir&gt;/&lt;domain-with-dashes&gt;/ca/</code>. The root may sign intermediates only (<code>pathlen:1</code>).</p>
+      <table class="docs-table">
+        <thead><tr><th>Flag</th><th>Short</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>--domain</code></td><td><code>-d</code></td><td>required</td><td>Root CA domain name, e.g. <code>runlocal.dev</code>.</td></tr>
+          <tr><td><code>--key-type</code></td><td></td><td><code>rsa</code></td><td>Private key algorithm: <code>rsa</code>, <code>ecdsa</code>, <code>ecdsa-p256</code>, <code>ecdsa-p384</code>, <code>ecdsa-p521</code>, <code>ed25519</code>.</td></tr>
+          <tr><td><code>--validity</code></td><td></td><td><code>2190d</code></td><td>Days (<code>90d</code>) or a Go duration (<code>24h</code>, <code>30m</code>).</td></tr>
+          <tr><td><code>--name-constraint</code></td><td></td><td></td><td>Repeatable. Restrict the names this CA may issue for, in openssl syntax: <code>permitted;DNS:.example.internal</code> or <code>excluded;IP:10.0.0.0/8</code>. Types: <code>DNS</code>, <code>IP</code>, <code>email</code>, <code>URI</code>. <code>permitted;</code> may be omitted.</td></tr>
+          <tr><td><code>--force</code></td><td><code>-f</code></td><td><code>false</code></td><td>Replace an existing Root CA. Orphans every certificate under it.</td></tr>
+        </tbody>
+      </table>
+<pre><code><span class="p">$</span> homepki root-ca -d runlocal.dev
+<span class="p">$</span> homepki root-ca -d klimax.internal --key-type ecdsa --validity 3650d \
+    --name-constraint "permitted;DNS:.klimax.internal"</code></pre>
+      <p>See <a href="name-constraints.html">Name constraints</a> and <a href="leaf-certificates.html">Server and client certificates</a> for key types and validity.</p>
+
+      <h2 id="intermediate-ca">intermediate-ca</h2>
+      <p>Generate an Intermediate CA signed by the domain's Root CA. It writes the certificate, the key and <code>&lt;name&gt;-intermediate-ca-chain.crt</code> (intermediate followed by root). An intermediate may sign leaves only (<code>pathlen:0</code>).</p>
+      <table class="docs-table">
+        <thead><tr><th>Flag</th><th>Short</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>--domain</code></td><td><code>-d</code></td><td>required</td><td>Root CA domain name.</td></tr>
+          <tr><td><code>--name</code></td><td><code>-n</code></td><td>required</td><td>Intermediate CA name, e.g. <code>bu1</code>.</td></tr>
+          <tr><td><code>--key-type</code></td><td></td><td><code>rsa</code></td><td>Same values as <code>root-ca</code>.</td></tr>
+          <tr><td><code>--validity</code></td><td></td><td><code>2190d</code></td><td>Capped at the Root CA's expiry, with a note.</td></tr>
+          <tr><td><code>--name-constraint</code></td><td></td><td></td><td>Repeatable. Same syntax as <code>root-ca</code>.</td></tr>
+          <tr><td><code>--force</code></td><td><code>-f</code></td><td><code>false</code></td><td>Replace an existing Intermediate CA and delete its CRLs. Orphans every leaf under it.</td></tr>
+        </tbody>
+      </table>
+<pre><code><span class="p">$</span> homepki intermediate-ca -d runlocal.dev -n bu1
+<span class="p">$</span> homepki intermediate-ca -d klimax.internal -n bu1 \
+    --name-constraint "permitted;DNS:.bu1.klimax.internal"</code></pre>
+
+      <h2 id="server-cert">server-cert</h2>
+      <p>Generate a key and a <code>serverAuth</code> certificate under an Intermediate CA, in <code>&lt;intermediate&gt;/server-tls/</code>. The common name is <code>&lt;server&gt;.&lt;intermediate&gt;.&lt;domain&gt;</code>, which is also the first SAN. The certificate is verified against its chain before anything is written.</p>
+      <table class="docs-table">
+        <thead><tr><th>Flag</th><th>Short</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>--domain</code></td><td><code>-d</code></td><td>required</td><td>Root CA domain name.</td></tr>
+          <tr><td><code>--intermediate</code></td><td><code>-i</code></td><td>required</td><td>Intermediate CA name.</td></tr>
+          <tr><td><code>--server</code></td><td><code>-s</code></td><td>required</td><td>Server name, e.g. <code>kong-gateway</code>.</td></tr>
+          <tr><td><code>--san</code></td><td></td><td></td><td>Repeatable. Additional Subject Alternative Name. Bare values are detected as IP or DNS; prefix with <code>DNS:</code>, <code>IP:</code>, <code>email:</code> or <code>URI:</code> to force a type.</td></tr>
+          <tr><td><code>--key-type</code></td><td></td><td><code>rsa</code></td><td>Same values as <code>root-ca</code>.</td></tr>
+          <tr><td><code>--validity</code></td><td></td><td><code>365d</code></td><td>Capped at the Intermediate CA's expiry, with a note.</td></tr>
+          <tr><td><code>--pkcs12</code></td><td></td><td><code>false</code></td><td>Also write <code>&lt;server&gt;.p12</code> with the key, certificate and CA chain.</td></tr>
+          <tr><td><code>--pkcs12-password</code></td><td></td><td><code>changeit</code></td><td>Password of the PKCS#12 file.</td></tr>
+          <tr><td><code>--force</code></td><td><code>-f</code></td><td><code>false</code></td><td>Replace an existing certificate of the same name. The key is regenerated.</td></tr>
+        </tbody>
+      </table>
+<pre><code><span class="p">$</span> homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway \
+    --san kong.local --san 192.168.1.10 --san 'DNS:*.kong.local'
+<span class="p">$</span> homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway --validity 24h --pkcs12 --force</code></pre>
+      <div class="callout warn"><span class="ico">⚠</span><p>Quote SANs that contain <code>*</code>. zsh expands an unquoted <code>--san DNS:*.kong.local</code> and fails the command with <code>no matches found</code>.</p></div>
+
+      <h2 id="client-cert">client-cert</h2>
+      <p>Generate a key and a <code>clientAuth</code> certificate under an Intermediate CA, in <code>&lt;intermediate&gt;/client-tls/</code>. Same naming and checks as <code>server-cert</code>.</p>
+      <table class="docs-table">
+        <thead><tr><th>Flag</th><th>Short</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>--domain</code></td><td><code>-d</code></td><td>required</td><td>Root CA domain name.</td></tr>
+          <tr><td><code>--intermediate</code></td><td><code>-i</code></td><td>required</td><td>Intermediate CA name.</td></tr>
+          <tr><td><code>--client</code></td><td><code>-c</code></td><td>required</td><td>Client name, e.g. <code>my-client</code>.</td></tr>
+          <tr><td><code>--san</code></td><td></td><td></td><td>Repeatable. Same syntax as <code>server-cert</code>; use <code>URI:</code> for a SPIFFE ID.</td></tr>
+          <tr><td><code>--key-type</code></td><td></td><td><code>rsa</code></td><td>Same values as <code>root-ca</code>.</td></tr>
+          <tr><td><code>--validity</code></td><td></td><td><code>365d</code></td><td>Capped at the Intermediate CA's expiry, with a note.</td></tr>
+          <tr><td><code>--pkcs12</code></td><td></td><td><code>false</code></td><td>Also write <code>&lt;client&gt;.p12</code> with the key, certificate and CA chain.</td></tr>
+          <tr><td><code>--pkcs12-password</code></td><td></td><td><code>changeit</code></td><td>Password of the PKCS#12 file.</td></tr>
+          <tr><td><code>--force</code></td><td><code>-f</code></td><td><code>false</code></td><td>Replace an existing certificate of the same name. The key is regenerated.</td></tr>
+        </tbody>
+      </table>
+<pre><code><span class="p">$</span> homepki client-cert -d runlocal.dev -i bu1 -c my-client \
+    --san URI:spiffe://runlocal.dev/ns/default/sa/my-client
+<span class="p">$</span> homepki client-cert -d runlocal.dev -i bu1 -c my-client --pkcs12</code></pre>
+
+      <h2 id="list">list subcommands</h2>
+      <p>Every tier has a <code>list</code> subcommand, with aliases <code>ls</code> and <code>l</code>. It reports expiry, days left and a verified chain of trust. Leaf lists also report revocation.</p>
+      <table class="docs-table">
+        <thead><tr><th>Command</th><th>Required flags</th><th>What it verifies</th></tr></thead>
+        <tbody>
+          <tr><td><code>root-ca list</code></td><td>none (lists every root in the workdir)</td><td>Each root is a CA and correctly self-signed.</td></tr>
+          <tr><td><code>intermediate-ca list</code></td><td><code>-d</code></td><td>Each intermediate is a CA signed by the root.</td></tr>
+          <tr><td><code>server-cert list</code></td><td><code>-d</code>, <code>-i</code></td><td>Chain to the root, <code>serverAuth</code> usage, not revoked.</td></tr>
+          <tr><td><code>client-cert list</code></td><td><code>-d</code>, <code>-i</code></td><td>Chain to the root, <code>clientAuth</code> usage, not revoked.</td></tr>
+        </tbody>
+      </table>
+      <table class="docs-table">
+        <thead><tr><th>Flag</th><th>Short</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>--output</code></td><td><code>-o</code></td><td><code>table</code></td><td><code>table</code> (coloured, for people) or <code>json</code> (for scripts).</td></tr>
+        </tbody>
+      </table>
+<pre><code><span class="p">$</span> homepki server-cert ls -d runlocal.dev -i bu1 -o json \
+    | jq -e 'all(.[]; .chain_valid)' &gt;/dev/null || echo "broken chain"</code></pre>
+      <p>The JSON format is described in <a href="listing.html">Listing and verification</a>.</p>
+
+      <h2 id="sign">sign</h2>
+      <p>Sign a PEM certificate signing request with an Intermediate CA. Only the subject (C, ST, L, O, OU, CN) and the SANs are taken from the request. Basic constraints and key usages are set by homepki, so a request cannot ask to become a CA. The subject must carry <code>O=</code> the root's literal name and <code>OU=</code> the intermediate name.</p>
+      <table class="docs-table">
+        <thead><tr><th>Flag</th><th>Short</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>--domain</code></td><td><code>-d</code></td><td>required</td><td>Root CA domain name.</td></tr>
+          <tr><td><code>--intermediate</code></td><td><code>-i</code></td><td>required</td><td>Intermediate CA name.</td></tr>
+          <tr><td><code>--csr</code></td><td></td><td>required</td><td>Path to the PEM request.</td></tr>
+          <tr><td><code>--type</code></td><td></td><td><code>server</code></td><td><code>server</code> or <code>client</code>: sets the extended key usage and the destination directory.</td></tr>
+          <tr><td><code>--name</code></td><td></td><td>first label of the CN</td><td>File name for the certificate.</td></tr>
+          <tr><td><code>--out</code></td><td></td><td></td><td>Write the certificate here instead of <code>server-tls/</code> or <code>client-tls/</code>.</td></tr>
+          <tr><td><code>--validity</code></td><td></td><td><code>365d</code></td><td>Capped at the Intermediate CA's expiry.</td></tr>
+          <tr><td><code>--force</code></td><td><code>-f</code></td><td><code>false</code></td><td>Replace an existing certificate at the output path.</td></tr>
+        </tbody>
+      </table>
+<pre><code><span class="p">$</span> homepki sign -d runlocal.dev -i bu1 --csr my-service.csr
+<span class="p">$</span> homepki sign -d runlocal.dev -i bu1 --csr my-client.csr --type client --name my-client --out ./my-client.crt</code></pre>
+      <p>See <a href="signing-csrs.html">Signing external CSRs</a>.</p>
+
+      <h2 id="revoke">revoke</h2>
+      <p>Add a leaf's serial number to the Intermediate CA's CRL, then re-sign the intermediate CRL, the root CRL and the CRL chain file. Pass exactly one of <code>--server</code>, <code>--client</code> or <code>--cert</code>. Revoking a certificate that is already revoked prints a message and exits <code>0</code>.</p>
+      <table class="docs-table">
+        <thead><tr><th>Flag</th><th>Short</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>--domain</code></td><td><code>-d</code></td><td>required</td><td>Root CA domain name.</td></tr>
+          <tr><td><code>--intermediate</code></td><td><code>-i</code></td><td>required</td><td>Intermediate CA name.</td></tr>
+          <tr><td><code>--server</code></td><td><code>-s</code></td><td></td><td>Server certificate to revoke, by name.</td></tr>
+          <tr><td><code>--client</code></td><td><code>-c</code></td><td></td><td>Client certificate to revoke, by name.</td></tr>
+          <tr><td><code>--cert</code></td><td></td><td></td><td>Path of a certificate to revoke, e.g. one written by <code>sign --out</code>. It must have been issued by this intermediate.</td></tr>
+          <tr><td><code>--reason</code></td><td></td><td><code>unspecified</code></td><td>RFC 5280 reason: <code>affiliationChanged</code>, <code>cACompromise</code>, <code>certificateHold</code>, <code>cessationOfOperation</code>, <code>keyCompromise</code>, <code>privilegeWithdrawn</code>, <code>superseded</code>, <code>unspecified</code>. Case-insensitive.</td></tr>
+          <tr><td><code>--validity</code></td><td></td><td><code>365d</code></td><td>How long the CRLs stay current (their <code>nextUpdate</code>).</td></tr>
+        </tbody>
+      </table>
+<pre><code><span class="p">$</span> homepki revoke -d runlocal.dev -i bu1 -c my-client --reason keyCompromise
+<span class="p">$</span> homepki revoke -d runlocal.dev -i bu1 --cert ./my-service.crt</code></pre>
+
+      <h2 id="crl">crl</h2>
+      <p>Write or re-sign the CRLs of an Intermediate CA and its Root CA, keeping every revocation already recorded. Use it before anything is revoked, since a server configured with a CRL file refuses to start without one, and to push <code>nextUpdate</code> forward before the CRLs go stale.</p>
+      <table class="docs-table">
+        <thead><tr><th>Flag</th><th>Short</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>--domain</code></td><td><code>-d</code></td><td>required</td><td>Root CA domain name.</td></tr>
+          <tr><td><code>--intermediate</code></td><td><code>-i</code></td><td>required</td><td>Intermediate CA name.</td></tr>
+          <tr><td><code>--validity</code></td><td></td><td><code>365d</code></td><td>How long the CRLs stay current. Capped at each issuer's expiry.</td></tr>
+        </tbody>
+      </table>
+<pre><code><span class="p">$</span> homepki crl -d runlocal.dev -i bu1
+<span class="p">$</span> homepki crl -d runlocal.dev -i bu1 --validity 7d</code></pre>
+      <p>See <a href="revocation.html">Revocation</a> for the files written.</p>
+
+      <h2 id="trust">trust</h2>
+      <p>Manage the trust stores that accept a Root CA. <code>--store</code> takes <code>system</code>, <code>nss</code> and <code>java</code>, repeated or comma-separated. Without it, every store available on the host is used; a store named explicitly must be available.</p>
+
+      <h3 id="trust-install">trust install</h3>
+      <p>Add the Root CA to each selected store. A store that already trusts it is skipped. The system store, and a Java <code>cacerts</code> file you cannot write, are changed under <code>sudo</code>.</p>
+      <table class="docs-table">
+        <thead><tr><th>Flag</th><th>Short</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>--domain</code></td><td><code>-d</code></td><td>required</td><td>Root CA domain name.</td></tr>
+          <tr><td><code>--store</code></td><td></td><td>every available store</td><td><code>system</code>, <code>nss</code>, <code>java</code>.</td></tr>
+        </tbody>
+      </table>
+
+      <h3 id="trust-uninstall">trust uninstall</h3>
+      <p>Remove the Root CA from each selected store. Stores that do not hold it are skipped. Same flags as <code>install</code>.</p>
+
+      <h3 id="trust-status">trust status</h3>
+      <p>Report which stores accept the Root CA. Alias <code>st</code>. Needs no privileges and never prompts.</p>
+      <table class="docs-table">
+        <thead><tr><th>Flag</th><th>Short</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>--domain</code></td><td><code>-d</code></td><td>every Root CA in the workdir</td><td>Root CA domain name.</td></tr>
+          <tr><td><code>--store</code></td><td></td><td>every available store</td><td><code>system</code>, <code>nss</code>, <code>java</code>.</td></tr>
+          <tr><td><code>--output</code></td><td><code>-o</code></td><td><code>table</code></td><td><code>table</code> or <code>json</code>.</td></tr>
+        </tbody>
+      </table>
+<pre><code><span class="p">$</span> homepki trust install -d runlocal.dev --store nss,java
+<span class="p">$</span> homepki trust status -d runlocal.dev -o json | jq '.[0].trusted'</code></pre>
+      <p>See <a href="trust.html">Trusting the root CA</a> for each store and the JSON fields.</p>
+
+      <h2 id="skill">skill</h2>
+      <p>Install the Agent Skill compiled into the binary. See <a href="agent-skill.html">Agent Skill</a>.</p>
+
+      <h3 id="skill-install">skill install</h3>
+      <table class="docs-table">
+        <thead><tr><th>Flag</th><th>Short</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>--claude</code></td><td></td><td><code>true</code></td><td>Install into Claude Code's user skills directory, <code>~/.claude/skills/homepki</code>.</td></tr>
+          <tr><td><code>--print</code></td><td></td><td><code>false</code></td><td>Write the skill to stdout instead of installing.</td></tr>
+          <tr><td><code>--force</code></td><td><code>-f</code></td><td><code>false</code></td><td>Overwrite an existing installed skill.</td></tr>
+        </tbody>
+      </table>
+
+      <h3 id="skill-path">skill path</h3>
+      <p>Print where the skill is installed for Claude Code: <code>~/.claude/skills/homepki/SKILL.md</code>. No flags.</p>
+<pre><code><span class="p">$</span> homepki skill install
+<span class="p">$</span> homepki skill install --print &gt; ./SKILL.md</code></pre>
+
+      <h2 id="version">version</h2>
+      <p>Print the version, commit and build date. Alias <code>v</code>; <code>homepki --version</code> prints the same.</p>
+<pre><code><span class="p">$</span> homepki version</code></pre>
+
+      <!-- pager --><div class="doc-pager">
+        <a href="trust.html"><span class="dir">← Previous</span><span class="ttl">Trusting the root CA</span></a>
+        <a class="next" href="go-package.html"><span class="dir">Next →</span><span class="ttl">Go package</span></a>
+      </div><!-- /pager -->
+    </article>
+  </main>
+</div>
+
+<!-- footer --><footer class="footer">
+  <div class="container">
+    <p>MIT licensed · <a href="https://github.com/bcollard/homepki">Source</a> · <a href="https://github.com/bcollard/homepki/releases">Releases</a> · <a href="https://github.com/bcollard/homepki/issues">Issues</a> · Built by <a href="https://github.com/bcollard">Baptiste Collard</a></p>
+  </div>
+</footer><!-- /footer -->
+
+<script src="search-index.js"></script>
+<script src="../site.js"></script>
+</body>
+</html>

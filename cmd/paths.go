@@ -37,9 +37,11 @@ func parseValidity(defaultDays int) (time.Duration, error) {
 }
 
 // noteCapped tells the user when a certificate got less validity than asked
-// for because its issuer expires first.
+// for because its issuer expires first. A cut of under an hour is not worth a
+// note: a default intermediate issued right after its root, both 2190 days,
+// always overshoots the root by the seconds between the two commands.
 func noteCapped(cert, issuer *x509.Certificate, asked time.Duration) {
-	if time.Now().Add(asked).After(issuer.NotAfter) && cert.NotAfter.Equal(issuer.NotAfter) {
+	if time.Now().Add(asked).Sub(issuer.NotAfter) > time.Hour && cert.NotAfter.Equal(issuer.NotAfter) {
 		fmt.Printf("Note: validity capped at the issuer's expiry, %s.\n", issuer.NotAfter.Format("2006-01-02"))
 	}
 }

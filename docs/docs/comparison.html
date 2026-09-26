@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>try{var t=localStorage.getItem('homepki-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+
+<title>vs. other tools – homepki docs</title>
+<meta name="description" content="Compare homepki with mkcert, step and step-ca, cfssl, easy-rsa, minica, certstrap and OpenSSL for local development certificates.">
+<link rel="canonical" href="https://bcollard.github.io/homepki/docs/comparison.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="homepki">
+<meta property="og:url" content="https://bcollard.github.io/homepki/docs/comparison.html">
+<meta property="og:title" content="homepki vs. mkcert, step, cfssl and others">
+<meta property="og:description" content="Feature matrix and use cases for local certificate tools.">
+<meta name="theme-color" content="#f6faf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1513" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<!-- nav --><nav class="nav">
+  <a class="brand" href="../" aria-label="homepki home">
+    <img src="../mark.svg" width="28" height="28" alt="">
+    <strong>homepki</strong>
+  </a>
+  <div class="nav-search">
+    <input type="search" id="docsSearch" placeholder="Search docs…" aria-label="Search documentation" autocomplete="off">
+    <kbd class="nav-search-kbd">⌘K</kbd>
+    <ul class="docs-search-results" id="docsSearchResults" hidden></ul>
+  </div>
+  <div class="nav-right">
+    <a class="nav-home" href="../">Home</a>
+    <a class="nav-docs" href="../docs/">Docs</a>
+    <a class="nav-github" href="https://github.com/bcollard/homepki">GitHub</a>
+    <a class="nav-version" id="navVersion" href="https://github.com/bcollard/homepki/releases/latest" title="Latest release">v0.8.1</a>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle colour theme"><span class="sun">☀</span><span class="moon">☾</span><span class="auto">◐</span></button>
+  </div>
+</nav><!-- /nav -->
+
+<div class="docs-shell">
+  <!-- sidebar --><details class="docs-sidebar" id="docsSidebar">
+    <summary>Documentation menu</summary>
+    <div class="docs-nav-inner">
+      <div class="docs-nav-group">
+        <h5>Introduction</h5>
+        <ul class="docs-nav">
+          <li><a href="./">Overview</a></li>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="comparison.html" class="active" aria-current="page">vs. other tools</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Issuing certificates</h5>
+        <ul class="docs-nav">
+          <li><a href="hierarchy.html">Certificate hierarchy</a></li>
+          <li><a href="leaf-certificates.html">Server and client certificates</a></li>
+          <li><a href="signing-csrs.html">Signing external CSRs</a></li>
+          <li><a href="listing.html">Listing and verification</a></li>
+          <li><a href="using-certificates.html">Using the certificates</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Security</h5>
+        <ul class="docs-nav">
+          <li><a href="name-constraints.html">Name constraints</a></li>
+          <li><a href="revocation.html">Revocation</a></li>
+          <li><a href="trust.html">Trusting the root CA</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Reference</h5>
+        <ul class="docs-nav">
+          <li><a href="cli-reference.html">CLI reference</a></li>
+          <li><a href="go-package.html">Go package</a></li>
+          <li><a href="agent-skill.html">Agent Skill</a></li>
+          <li><a href="changelog.html">Changelog</a></li>
+        </ul>
+      </div>
+    </div>
+  </details><!-- /sidebar -->
+
+  <main class="docs-main">
+    <article class="docs-prose">
+      <!-- breadcrumb --><p class="breadcrumb"><a href="../">Home</a> › <a href="./">Docs</a> › vs. other tools</p><!-- /breadcrumb -->
+      <h1>homepki vs. other tools</h1>
+      <p class="lead">How homepki 0.8.0 compares with other command line tools that create local certificates. The comparison is about local development and test use.</p>
+
+      <h2 id="feature-matrix">Feature matrix</h2>
+      <table class="docs-table">
+        <thead><tr><th>Feature</th><th>homepki</th><th>mkcert</th><th>step</th><th>cfssl</th><th>easy-rsa</th><th>minica</th><th>certstrap</th></tr></thead>
+        <tbody>
+          <tr><td>Intermediate CAs</td><td class="yes">Yes</td><td class="no">No</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="part">separate PKI</td><td class="no">No</td><td class="yes">Yes</td></tr>
+          <tr><td>Several intermediates per root</td><td class="yes">Yes</td><td class="no">No</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="part">manual</td><td class="no">No</td><td class="yes">Yes</td></tr>
+          <tr><td>Client (mTLS) certificates</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td class="yes">Yes</td></tr>
+          <tr><td>Name constraints</td><td class="yes">Yes</td><td class="no">No</td><td class="part">templates</td><td class="part">policy config</td><td class="part">OpenSSL config</td><td class="no">No</td><td class="part">DNS only</td></tr>
+          <tr><td>Constraints checked before writing</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td><td class="no">No</td><td class="no">No</td><td class="no">No</td><td class="no">No</td></tr>
+          <tr><td>Key types</td><td>RSA, ECDSA, Ed25519</td><td>RSA, ECDSA</td><td>RSA, ECDSA, Ed25519</td><td>RSA, ECDSA</td><td>RSA, ECDSA, EdDSA</td><td>RSA, ECDSA</td><td>RSA, ECDSA</td></tr>
+          <tr><td>Custom validity</td><td class="yes">Yes</td><td class="no">No</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td class="yes">Yes</td></tr>
+          <tr><td>Sign an external CSR</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td class="yes">Yes</td></tr>
+          <tr><td>PKCS#12 output</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
+          <tr><td>Revocation (CRL)</td><td class="yes">Yes</td><td class="no">No</td><td class="part">with step-ca</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td class="yes">Yes</td></tr>
+          <tr><td>OCSP, ACME or an online CA</td><td class="no">No</td><td class="no">No</td><td class="part">step-ca: ACME, no OCSP</td><td class="part">API server, OCSP</td><td class="no">No</td><td class="no">No</td><td class="no">No</td></tr>
+          <tr><td>Chain check of the whole tree</td><td class="yes">Yes</td><td class="no">No</td><td class="part">per file</td><td class="part">per file</td><td class="no">No</td><td class="no">No</td><td class="no">No</td></tr>
+          <tr><td>Trust install: macOS, Linux</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td><td class="no">No</td><td class="no">No</td></tr>
+          <tr><td>Trust install: Windows</td><td class="no">No</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td><td class="no">No</td><td class="no">No</td></tr>
+          <tr><td>Trust install: Firefox/NSS, Java</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td><td class="no">No</td><td class="no">No</td></tr>
+          <tr><td>Encrypted private keys</td><td class="no">No</td><td class="no">No</td><td class="yes">Yes</td><td class="no">No</td><td class="yes">Yes</td><td class="no">No</td><td class="yes">Yes</td></tr>
+          <tr><td>Needs OpenSSL</td><td class="no">No</td><td class="no">No</td><td class="no">No</td><td class="no">No</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
+        </tbody>
+      </table>
+      <p>"step" is the <code>step</code> CLI; online features come from step-ca, its companion server. Entries for the other tools describe their documented behaviour, not a test run.</p>
+
+      <h2 id="when-to-use-which">When to use which</h2>
+      <table class="docs-table">
+        <thead><tr><th>Need</th><th>Best fit</th></tr></thead>
+        <tbody>
+          <tr><td>Make <code>https://localhost</code> work in a browser, on any OS including Windows</td><td>mkcert</td></tr>
+          <tr><td>mTLS or multi-tenant demos with CA bundles, client certificates and CRLs, on macOS or Linux</td><td>homepki</td></tr>
+          <tr><td>A CA that constrains which names it can sign, checked before a certificate is written</td><td>homepki</td></tr>
+          <tr><td>An online CA with ACME, short-lived certificates on demand, SSH certificates</td><td>step-ca</td></tr>
+          <tr><td>A CA behind an HTTP API, with OCSP</td><td>cfssl</td></tr>
+          <tr><td>A long-lived OpenVPN PKI with encrypted keys</td><td>easy-rsa</td></tr>
+          <tr><td>Certificates issued inside Kubernetes</td><td>cert-manager, with a homepki intermediate as its CA issuer</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="mkcert">mkcert</h2>
+      <p>mkcert creates one local root and signs leaves directly with it. Its strength is trust installation: the system store on macOS, Linux and Windows, Firefox/NSS and Java, in one command. It has no intermediates, no name constraints, fixed validity and no revocation. Its root can vouch for any name once trusted. homepki covers the same trust stores except Windows, and adds the hierarchy, client certificates under separate intermediates, name constraints and CRLs.</p>
+
+      <h2 id="step">step and step-ca</h2>
+      <p><code>step certificate create</code> can build the same three tiers with profiles, and templates allow name constraints. You choose file names and layout yourself. step-ca adds an online CA with ACME, provisioners and SSH certificates. homepki fixes the layout per domain and intermediate, derives the subjects, verifies every chain in <code>list</code>, and needs no server.</p>
+
+      <h2 id="cfssl">cfssl</h2>
+      <p>cfssl is configured with JSON: CSR definitions, signing profiles and policies. It can run as an HTTP API, generate CRLs and serve OCSP. It does not install trust. It fits a CA used by services and CI over an API more than a workstation.</p>
+
+      <h2 id="easy-rsa">easy-rsa</h2>
+      <p>easy-rsa is a set of shell scripts around OpenSSL, known from OpenVPN. One PKI directory holds one CA; a sub-CA is a second PKI signed by the first. It supports revocation with CRLs, encrypted keys and PKCS#12 export. It needs OpenSSL and does not install trust.</p>
+
+      <h2 id="minica">minica</h2>
+      <p>minica creates a root and leaves signed by it, one directory per name. It has no intermediates, no client-certificate mode, no revocation and no trust installation. It is the smallest option when a test only needs a leaf and a CA file.</p>
+
+      <h2 id="certstrap">certstrap</h2>
+      <p>certstrap has an <code>init</code>, <code>request-cert</code>, <code>sign</code> workflow, supports intermediates, CRLs and passphrase-protected keys, and can restrict a CA to DNS names. It does not install trust or produce PKCS#12.</p>
+
+      <h2 id="openssl">OpenSSL</h2>
+      <p><code>openssl req</code>, <code>x509</code> and <code>ca</code> can do everything above and more, with configuration files you write. homepki issued certificates with <code>openssl</code> before 0.7.0; it now uses Go's <code>crypto/x509</code>, and OpenSSL is only useful for inspecting results.</p>
+
+      <h2 id="homepki-gaps">What homepki does not do</h2>
+      <ul>
+        <li>No Windows binary and no Windows trust store.</li>
+        <li>No online CA: no ACME, no OCSP, no API server.</li>
+        <li>Private keys are never encrypted.</li>
+        <li>Certificates carry no CRL distribution point; CRL files are handed to servers directly.</li>
+        <li>Intermediate CAs cannot be revoked, only replaced with <code>--force</code>.</li>
+        <li>Subject names are derived and cannot be set, except through <a href="signing-csrs.html">signed CSRs</a>.</li>
+      </ul>
+
+      <!-- pager --><div class="doc-pager">
+        <a href="getting-started.html"><span class="dir">← Previous</span><span class="ttl">Getting started</span></a>
+        <a class="next" href="faq.html"><span class="dir">Next →</span><span class="ttl">FAQ</span></a>
+      </div><!-- /pager -->
+    </article>
+  </main>
+</div>
+
+<!-- footer --><footer class="footer">
+  <div class="container">
+    <p>MIT licensed · <a href="https://github.com/bcollard/homepki">Source</a> · <a href="https://github.com/bcollard/homepki/releases">Releases</a> · <a href="https://github.com/bcollard/homepki/issues">Issues</a> · Built by <a href="https://github.com/bcollard">Baptiste Collard</a></p>
+  </div>
+</footer><!-- /footer -->
+
+<script src="search-index.js"></script>
+<script src="../site.js"></script>
+</body>
+</html>

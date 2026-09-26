@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>try{var t=localStorage.getItem('homepki-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+
+<title>Name constraints – homepki docs</title>
+<meta name="description" content="Restrict what a homepki root or intermediate CA may issue for with name constraints on DNS, IP, email and URI names, enforced before any certificate is written.">
+<link rel="canonical" href="https://bcollard.github.io/homepki/docs/name-constraints.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="homepki">
+<meta property="og:url" content="https://bcollard.github.io/homepki/docs/name-constraints.html">
+<meta property="og:title" content="Name constraints with homepki">
+<meta property="og:description" content="Limit a trusted root to your own names, so a leaked key cannot impersonate other sites.">
+<meta name="theme-color" content="#f6faf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1513" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<!-- nav --><nav class="nav">
+  <a class="brand" href="../" aria-label="homepki home">
+    <img src="../mark.svg" width="28" height="28" alt="">
+    <strong>homepki</strong>
+  </a>
+  <div class="nav-search">
+    <input type="search" id="docsSearch" placeholder="Search docs…" aria-label="Search documentation" autocomplete="off">
+    <kbd class="nav-search-kbd">⌘K</kbd>
+    <ul class="docs-search-results" id="docsSearchResults" hidden></ul>
+  </div>
+  <div class="nav-right">
+    <a class="nav-home" href="../">Home</a>
+    <a class="nav-docs" href="../docs/">Docs</a>
+    <a class="nav-github" href="https://github.com/bcollard/homepki">GitHub</a>
+    <a class="nav-version" id="navVersion" href="https://github.com/bcollard/homepki/releases/latest" title="Latest release">v0.8.1</a>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle colour theme"><span class="sun">☀</span><span class="moon">☾</span><span class="auto">◐</span></button>
+  </div>
+</nav><!-- /nav -->
+
+<div class="docs-shell">
+  <!-- sidebar --><details class="docs-sidebar" id="docsSidebar">
+    <summary>Documentation menu</summary>
+    <div class="docs-nav-inner">
+      <div class="docs-nav-group">
+        <h5>Introduction</h5>
+        <ul class="docs-nav">
+          <li><a href="./">Overview</a></li>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="comparison.html">vs. other tools</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Issuing certificates</h5>
+        <ul class="docs-nav">
+          <li><a href="hierarchy.html">Certificate hierarchy</a></li>
+          <li><a href="leaf-certificates.html">Server and client certificates</a></li>
+          <li><a href="signing-csrs.html">Signing external CSRs</a></li>
+          <li><a href="listing.html">Listing and verification</a></li>
+          <li><a href="using-certificates.html">Using the certificates</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Security</h5>
+        <ul class="docs-nav">
+          <li><a href="name-constraints.html" class="active" aria-current="page">Name constraints</a></li>
+          <li><a href="revocation.html">Revocation</a></li>
+          <li><a href="trust.html">Trusting the root CA</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Reference</h5>
+        <ul class="docs-nav">
+          <li><a href="cli-reference.html">CLI reference</a></li>
+          <li><a href="go-package.html">Go package</a></li>
+          <li><a href="agent-skill.html">Agent Skill</a></li>
+          <li><a href="changelog.html">Changelog</a></li>
+        </ul>
+      </div>
+    </div>
+  </details><!-- /sidebar -->
+
+  <main class="docs-main">
+    <article class="docs-prose">
+      <!-- breadcrumb --><p class="breadcrumb"><a href="../">Home</a> › <a href="./">Docs</a> › Name constraints</p><!-- /breadcrumb -->
+      <h1>Name constraints</h1>
+      <p class="lead">Limit the names a CA may issue for. A constrained root cannot vouch for any other site, even if its key leaks.</p>
+
+      <h2 id="why-constrain">Why constrain a CA</h2>
+      <p>A root CA in your trust store can vouch for any name, including <code>github.com</code> or your bank. If its key leaks, anyone holding it can impersonate those sites on your machine. A name constraint limits the names a CA may issue for. A root restricted to <code>.klimax.internal</code> cannot sign for any other domain, even with its key.</p>
+      <p>Go, macOS, Chrome and Firefox enforce name constraints on roots and intermediates. Constrain a root before you <a href="trust.html">trust it system-wide</a>.</p>
+
+      <h2 id="syntax">Syntax</h2>
+      <p><code>root-ca</code> and <code>intermediate-ca</code> take a repeatable <code>--name-constraint</code>, written in OpenSSL syntax:</p>
+<pre><code>[permitted;|excluded;]TYPE:value</code></pre>
+<pre><code><span class="p">$</span> homepki root-ca -d klimax.internal \
+    --name-constraint "permitted;DNS:.klimax.internal"
+
+<span class="p">$</span> homepki intermediate-ca -d klimax.internal -n bu1 \
+    --name-constraint "permitted;DNS:.bu1.klimax.internal" \
+    --name-constraint "IP:10.0.0.0/8"</code></pre>
+      <table class="docs-table">
+        <thead><tr><th>Part</th><th>Values</th></tr></thead>
+        <tbody>
+          <tr><td>subtree</td><td><code>permitted;</code> or <code>excluded;</code>. <code>permitted;</code> may be left out.</td></tr>
+          <tr><td><code>TYPE</code></td><td><code>DNS</code>, <code>IP</code>, <code>email</code> or <code>URI</code>, any case</td></tr>
+          <tr><td><code>DNS</code> value</td><td><code>.example.internal</code> matches subdomains only; <code>example.internal</code> matches the domain and its subdomains</td></tr>
+          <tr><td><code>IP</code> value</td><td>a range in CIDR (<code>10.0.0.0/8</code>) or address/netmask (<code>10.0.0.0/255.0.0.0</code>) form. A bare address is rejected.</td></tr>
+          <tr><td><code>email</code> value</td><td>a mailbox, a host, or <code>.domain</code> for every host under it</td></tr>
+          <tr><td><code>URI</code> value</td><td>a host or <code>.domain</code>, matched against the URI's host</td></tr>
+        </tbody>
+      </table>
+      <p>The extension is marked critical, as RFC 5280 requires. Invalid values stop the command before anything is written:</p>
+<pre><code><span class="p">$</span> homepki root-ca -d x.test --name-constraint "IP:10.0.0.0"
+<span class="no">Error: name constraint "IP:10.0.0.0": IP constraint needs a range, e.g. 10.0.0.0/8 or 10.0.0.0/255.0.0.0</span></code></pre>
+
+      <h3 id="per-type-coverage">Each constraint covers one name type</h3>
+      <p>Constraints apply per name type. A <code>DNS</code> constraint on its own leaves IP, email and URI SANs unrestricted. To restrict IP SANs too, add an <code>IP:</code> constraint; once one is present, every IP SAN must fall in a permitted range.</p>
+
+      <h2 id="enforced-at-issue-time">Enforced when a leaf is issued</h2>
+      <p><code>server-cert</code>, <code>client-cert</code> and <code>sign</code> verify every new certificate against its chain before writing it. A name outside the constraints is refused, nothing is written, and the command exits 1:</p>
+<pre><code><span class="p">$</span> homepki server-cert -d klimax.internal -i bu1 -s gw --san evil.example.com
+Generating server certificate gw under klimax.internal/bu1
+<span class="no">Error: x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "evil.example.com" is not permitted by any constraint</span>
+
+A CA in the chain carries name constraints that exclude one of this certificate's Subject Alternative Names, so no TLS client would accept it. Nothing was written; check the constraints with: openssl x509 -noout -ext nameConstraints -in ~/.homepki/klimax-internal/bu1/bu1-intermediate-ca.crt</code></pre>
+      <p>Constraints on the root and on the intermediate both apply. A leaf must satisfy every CA in its chain.</p>
+
+      <h2 id="pick-a-domain-inside">Pick a domain inside the constraint</h2>
+      <p>Every generated leaf carries <code>&lt;leaf&gt;.&lt;intermediate&gt;.&lt;domain&gt;</code> as its first SAN, so the constraints must permit that name. The CA commands warn when they do not:</p>
+<pre><code><span class="p">$</span> homepki intermediate-ca -d klimax.internal -n bu2 --name-constraint "permitted;DNS:.other.internal"
+Initializing Intermediate CA bu2 for klimax.internal
+Warning: server-cert and client-cert always add &lt;leaf&gt;.bu2.klimax.internal as a Subject Alternative Name, which these constraints do not permit. Only certificates signed with 'homepki sign' can be issued under this CA.</code></pre>
+      <p>Under such a CA only <code>homepki sign</code> can issue, with requests whose SANs fit the constraint.</p>
+
+      <h2 id="changing-constraints">Changing constraints</h2>
+      <p>Constraints are part of the CA certificate and are fixed when it is issued. Adding or changing them means re-generating the CA with <code>--force</code>, which orphans every certificate beneath it. See <a href="listing.html#after-force">Checking after --force</a>.</p>
+
+      <h2 id="inspecting">Inspecting constraints</h2>
+<pre><code><span class="p">$</span> openssl x509 -noout -ext nameConstraints -in ~/.homepki/klimax-internal/bu1/bu1-intermediate-ca.crt
+X509v3 Name Constraints: critical
+    Permitted:
+      DNS:.bu1.klimax.internal
+      IP:10.0.0.0/255.0.0.0</code></pre>
+
+      <h2 id="from-go">Building constraints in Go</h2>
+      <p>Go code that imports <code>github.com/bcollard/homepki/pkg/pki</code> can build the same constraints without the OpenSSL syntax. Each method returns a copy, so calls chain:</p>
+<pre><code>lan, err := pki.ParseIPRange("10.0.0.0/8")
+<span class="c">// handle err</span>
+nc := pki.NameConstraints{}.
+	PermitDNS(".klimax.internal").
+	PermitIP(lan)</code></pre>
+      <p>See <a href="go-package.html">Go package</a>.</p>
+
+      <!-- pager --><div class="doc-pager">
+        <a href="using-certificates.html"><span class="dir">← Previous</span><span class="ttl">Using the certificates</span></a>
+        <a class="next" href="revocation.html"><span class="dir">Next →</span><span class="ttl">Revocation</span></a>
+      </div><!-- /pager -->
+    </article>
+  </main>
+</div>
+
+<!-- footer --><footer class="footer">
+  <div class="container">
+    <p>MIT licensed · <a href="https://github.com/bcollard/homepki">Source</a> · <a href="https://github.com/bcollard/homepki/releases">Releases</a> · <a href="https://github.com/bcollard/homepki/issues">Issues</a> · Built by <a href="https://github.com/bcollard">Baptiste Collard</a></p>
+  </div>
+</footer><!-- /footer -->
+
+<script src="search-index.js"></script>
+<script src="../site.js"></script>
+</body>
+</html>

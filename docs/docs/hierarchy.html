@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>try{var t=localStorage.getItem('homepki-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+
+<title>Certificate hierarchy – homepki docs</title>
+<meta name="description" content="How homepki structures a PKI: root CA, intermediate CAs and leaves, derived subject names, chain files, the file layout and overwrite protection.">
+<link rel="canonical" href="https://bcollard.github.io/homepki/docs/hierarchy.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="homepki">
+<meta property="og:url" content="https://bcollard.github.io/homepki/docs/hierarchy.html">
+<meta property="og:title" content="homepki certificate hierarchy">
+<meta property="og:description" content="Root CA, intermediates and leaves: subjects, path lengths, chain files and file layout.">
+<meta name="theme-color" content="#f6faf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1513" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<!-- nav --><nav class="nav">
+  <a class="brand" href="../" aria-label="homepki home">
+    <img src="../mark.svg" width="28" height="28" alt="">
+    <strong>homepki</strong>
+  </a>
+  <div class="nav-search">
+    <input type="search" id="docsSearch" placeholder="Search docs…" aria-label="Search documentation" autocomplete="off">
+    <kbd class="nav-search-kbd">⌘K</kbd>
+    <ul class="docs-search-results" id="docsSearchResults" hidden></ul>
+  </div>
+  <div class="nav-right">
+    <a class="nav-home" href="../">Home</a>
+    <a class="nav-docs" href="../docs/">Docs</a>
+    <a class="nav-github" href="https://github.com/bcollard/homepki">GitHub</a>
+    <a class="nav-version" id="navVersion" href="https://github.com/bcollard/homepki/releases/latest" title="Latest release">v0.8.1</a>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle colour theme"><span class="sun">☀</span><span class="moon">☾</span><span class="auto">◐</span></button>
+  </div>
+</nav><!-- /nav -->
+
+<div class="docs-shell">
+  <!-- sidebar --><details class="docs-sidebar" id="docsSidebar">
+    <summary>Documentation menu</summary>
+    <div class="docs-nav-inner">
+      <div class="docs-nav-group">
+        <h5>Introduction</h5>
+        <ul class="docs-nav">
+          <li><a href="./">Overview</a></li>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="comparison.html">vs. other tools</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Issuing certificates</h5>
+        <ul class="docs-nav">
+          <li><a href="hierarchy.html" class="active" aria-current="page">Certificate hierarchy</a></li>
+          <li><a href="leaf-certificates.html">Server and client certificates</a></li>
+          <li><a href="signing-csrs.html">Signing external CSRs</a></li>
+          <li><a href="listing.html">Listing and verification</a></li>
+          <li><a href="using-certificates.html">Using the certificates</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Security</h5>
+        <ul class="docs-nav">
+          <li><a href="name-constraints.html">Name constraints</a></li>
+          <li><a href="revocation.html">Revocation</a></li>
+          <li><a href="trust.html">Trusting the root CA</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Reference</h5>
+        <ul class="docs-nav">
+          <li><a href="cli-reference.html">CLI reference</a></li>
+          <li><a href="go-package.html">Go package</a></li>
+          <li><a href="agent-skill.html">Agent Skill</a></li>
+          <li><a href="changelog.html">Changelog</a></li>
+        </ul>
+      </div>
+    </div>
+  </details><!-- /sidebar -->
+
+  <main class="docs-main">
+    <article class="docs-prose">
+      <!-- breadcrumb --><p class="breadcrumb"><a href="../">Home</a> › <a href="./">Docs</a> › Certificate hierarchy</p><!-- /breadcrumb -->
+      <h1>Certificate hierarchy</h1>
+      <p class="lead">homepki builds exactly three tiers: a self-signed root CA per domain, intermediate CAs signed by the root, and server or client leaves signed by an intermediate.</p>
+
+      <h2 id="the-three-tiers">The three tiers</h2>
+      <table class="docs-table">
+        <thead><tr><th>Tier</th><th>Command</th><th>Signed by</th><th>Path length</th><th>Default validity</th></tr></thead>
+        <tbody>
+          <tr><td>Root CA</td><td><code>homepki root-ca -d runlocal.dev</code></td><td>itself</td><td>1</td><td>2190 days</td></tr>
+          <tr><td>Intermediate CA</td><td><code>homepki intermediate-ca -d runlocal.dev -n bu1</code></td><td>the root</td><td>0</td><td>2190 days</td></tr>
+          <tr><td>Server leaf</td><td><code>homepki server-cert -d runlocal.dev -i bu1 -s gw</code></td><td>the intermediate</td><td>not a CA</td><td>365 days</td></tr>
+          <tr><td>Client leaf</td><td><code>homepki client-cert -d runlocal.dev -i bu1 -c cli</code></td><td>the intermediate</td><td>not a CA</td><td>365 days</td></tr>
+        </tbody>
+      </table>
+      <p>The root has path length 1, so it can sign intermediates only. Intermediates have path length 0, so they can sign leaves only: you cannot nest a second intermediate under one. Each tier requires the tier above it and stops with an error when it is missing.</p>
+      <p>CA certificates carry <code>keyCertSign</code> and <code>cRLSign</code>. Server leaves carry <code>serverAuth</code>, client leaves <code>clientAuth</code>, and both carry <code>digitalSignature</code>; an RSA server leaf also carries <code>keyEncipherment</code>. Serial numbers are random 128-bit values, and <code>NotBefore</code> is set 5 minutes in the past so a new certificate is already valid in a container or VM whose clock runs slightly behind.</p>
+
+      <h2 id="derived-subjects">Derived subjects</h2>
+      <p>Subject names are not configurable. They are derived from the domain, the intermediate name and the leaf name:</p>
+      <table class="docs-table">
+        <thead><tr><th>Tier</th><th>O</th><th>OU</th><th>CN</th></tr></thead>
+        <tbody>
+          <tr><td>Root CA</td><td><code>runlocal-dev</code></td><td></td><td><code>runlocal.dev</code></td></tr>
+          <tr><td>Intermediate CA</td><td><code>runlocal-dev</code></td><td><code>bu1</code></td><td><code>bu1.runlocal.dev</code></td></tr>
+          <tr><td>Leaf</td><td><code>runlocal-dev</code></td><td><code>bu1</code></td><td><code>gw.bu1.runlocal.dev</code></td></tr>
+        </tbody>
+      </table>
+      <p>The organization is the domain with dots replaced by dashes, which is also the directory name. The leaf CN <code>&lt;leaf&gt;.&lt;intermediate&gt;.&lt;domain&gt;</code> is always the leaf's first DNS Subject Alternative Name. Add the names clients actually use with <code>--san</code>; most TLS clients ignore the CN and match SANs only. See <a href="leaf-certificates.html#subject-alternative-names">Subject Alternative Names</a>.</p>
+
+      <h2 id="multiple-intermediates">Several intermediates under one root</h2>
+      <p>Create one intermediate per tenant, team or environment under a single root:</p>
+<pre><code><span class="p">$</span> homepki intermediate-ca -d runlocal.dev -n bu1
+<span class="p">$</span> homepki intermediate-ca -d runlocal.dev -n bu2
+<span class="p">$</span> homepki intermediate-ca list -d runlocal.dev</code></pre>
+      <p>Leaves under one intermediate are independent of leaves under another. The chain file of <code>bu1</code> also contains the root, so a server that uses it to verify client certificates accepts a <code>bu2</code> client certificate when the client sends the <code>bu2</code> intermediate with it. To keep tenants apart, have the server check the issuer or the OU of the client certificate, trust only the intermediate certificate (<code>bu1-intermediate-ca.crt</code>) where the server allows a non-root trust anchor, or use one root per tenant. Re-issuing one intermediate only orphans its own leaves.</p>
+      <p>Tiers can use different key types: an ECDSA leaf under an RSA intermediate is fine.</p>
+
+      <h2 id="chain-files">Chain files</h2>
+      <p><code>intermediate-ca</code> writes <code>&lt;name&gt;-intermediate-ca-chain.crt</code>: the intermediate followed by the root, in PEM. Use it as:</p>
+      <ul>
+        <li>the CA bundle handed to clients that must trust a server certificate;</li>
+        <li>the trust store a server uses to verify client certificates;</li>
+        <li>the chain a server presents after its leaf, so clients that trust only the root can build the path.</li>
+      </ul>
+      <p>There is no full-chain file that includes a leaf. Concatenate the leaf and the intermediate when a server needs one: see <a href="using-certificates.html#nginx">nginx</a>.</p>
+
+      <h2 id="file-layout">File layout</h2>
+      <p>Everything lives under the working directory: <code>--workdir</code>, then <code>$HOMEPKI_WORKDIR</code>, then <code>~/.homepki</code>.</p>
+<pre><code>~/.homepki/
+└── runlocal-dev/                                <span class="c"># domain, dots replaced by dashes</span>
+    ├── ca/                                      <span class="c"># the root CA</span>
+    │   ├── runlocal-dev-root-ca.crt
+    │   ├── runlocal-dev-root-ca.crl             <span class="c"># after revoke or crl</span>
+    │   └── private/runlocal-dev-root-ca.key
+    └── bu1/                                     <span class="c"># an intermediate CA</span>
+        ├── bu1-intermediate-ca.crt
+        ├── bu1-intermediate-ca-chain.crt        <span class="c"># intermediate + root</span>
+        ├── bu1-intermediate-ca.crl              <span class="c"># after revoke or crl</span>
+        ├── bu1-crl-chain.crl                    <span class="c"># intermediate CRL + root CRL</span>
+        ├── private/bu1-intermediate-ca.key
+        ├── server-tls/
+        │   ├── kong-gateway.crt
+        │   ├── kong-gateway.key
+        │   └── kong-gateway.p12                 <span class="c"># with --pkcs12</span>
+        └── client-tls/
+            ├── my-client.crt
+            ├── my-client.key
+            └── my-client.p12                    <span class="c"># with --pkcs12</span></code></pre>
+      <p>Certificates and CRLs are PEM. Private keys are unencrypted PKCS#8 PEM with mode <code>0600</code>; <code>private/</code> directories are <code>0700</code>; <code>.p12</code> files are <code>0600</code>. Leaf directories are created on first use, so <code>server-cert list</code> before any server certificate exists prints an empty list and exits 0.</p>
+      <p>Working directories created before 0.7.0 also hold OpenSSL <code>.conf</code> and <code>.csr</code> files, <code>db/</code> directories and numbered <code>.pem</code> copies. homepki ignores them, and <code>--force</code> on a tier deletes that tier's leftovers.</p>
+
+      <h2 id="overwrite-protection">Overwrite protection</h2>
+      <p>A generate command refuses to replace existing material. It exits 1, prints the files in the way, and changes nothing. <code>--force</code> replaces them:</p>
+      <table class="docs-table">
+        <thead><tr><th>Command with <code>--force</code></th><th>Effect</th></tr></thead>
+        <tbody>
+          <tr><td><code>root-ca -d X</code></td><td>New root key and certificate; deletes the root CRL. Every intermediate and leaf under it stops verifying.</td></tr>
+          <tr><td><code>intermediate-ca -d X -n Y</code></td><td>New intermediate key, certificate and chain file; deletes its CRLs. Every leaf under it stops verifying.</td></tr>
+          <tr><td><code>server-cert</code> / <code>client-cert</code></td><td>New key and certificate; rewrites the <code>.p12</code> with <code>--pkcs12</code>, deletes it otherwise.</td></tr>
+          <tr><td><code>sign</code></td><td>Overwrites the certificate at the output path.</td></tr>
+        </tbody>
+      </table>
+      <div class="callout warn"><span class="ico">⚠</span><p><code>--force</code> on a CA tier orphans everything below it. The tier you replaced still reports <code>✓ OK</code> in <code>list</code>; only the tier below flips to <code>✗ INVALID: x509: certificate signed by unknown authority</code>. After forcing a CA, check the lowest tier.</p></div>
+      <p>There is no certificate database, so the same subject can be issued any number of times. In scripts, prefer a fresh working directory or a new name over <code>--force</code>.</p>
+
+      <!-- pager --><div class="doc-pager">
+        <a href="faq.html"><span class="dir">← Previous</span><span class="ttl">FAQ</span></a>
+        <a class="next" href="leaf-certificates.html"><span class="dir">Next →</span><span class="ttl">Server and client certificates</span></a>
+      </div><!-- /pager -->
+    </article>
+  </main>
+</div>
+
+<!-- footer --><footer class="footer">
+  <div class="container">
+    <p>MIT licensed · <a href="https://github.com/bcollard/homepki">Source</a> · <a href="https://github.com/bcollard/homepki/releases">Releases</a> · <a href="https://github.com/bcollard/homepki/issues">Issues</a> · Built by <a href="https://github.com/bcollard">Baptiste Collard</a></p>
+  </div>
+</footer><!-- /footer -->
+
+<script src="search-index.js"></script>
+<script src="../site.js"></script>
+</body>
+</html>

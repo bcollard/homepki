@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>try{var t=localStorage.getItem('homepki-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+
+<title>Agent Skill – homepki docs</title>
+<meta name="description" content="Install the homepki Agent Skill so Claude Code and other AI coding tools issue TLS and mTLS certificates with homepki instead of hand-written openssl commands.">
+<link rel="canonical" href="https://bcollard.github.io/homepki/docs/agent-skill.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="homepki">
+<meta property="og:url" content="https://bcollard.github.io/homepki/docs/agent-skill.html">
+<meta property="og:title" content="homepki Agent Skill for AI coding tools">
+<meta property="og:description" content="Teach AI coding tools to use homepki for local TLS and mTLS material.">
+<meta name="theme-color" content="#f6faf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1513" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<!-- nav --><nav class="nav">
+  <a class="brand" href="../" aria-label="homepki home">
+    <img src="../mark.svg" width="28" height="28" alt="">
+    <strong>homepki</strong>
+  </a>
+  <div class="nav-search">
+    <input type="search" id="docsSearch" placeholder="Search docs…" aria-label="Search documentation" autocomplete="off">
+    <kbd class="nav-search-kbd">⌘K</kbd>
+    <ul class="docs-search-results" id="docsSearchResults" hidden></ul>
+  </div>
+  <div class="nav-right">
+    <a class="nav-home" href="../">Home</a>
+    <a class="nav-docs" href="../docs/">Docs</a>
+    <a class="nav-github" href="https://github.com/bcollard/homepki">GitHub</a>
+    <a class="nav-version" id="navVersion" href="https://github.com/bcollard/homepki/releases/latest" title="Latest release">v0.8.1</a>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle colour theme"><span class="sun">☀</span><span class="moon">☾</span><span class="auto">◐</span></button>
+  </div>
+</nav><!-- /nav -->
+
+<div class="docs-shell">
+  <!-- sidebar --><details class="docs-sidebar" id="docsSidebar">
+    <summary>Documentation menu</summary>
+    <div class="docs-nav-inner">
+      <div class="docs-nav-group">
+        <h5>Introduction</h5>
+        <ul class="docs-nav">
+          <li><a href="./">Overview</a></li>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="comparison.html">vs. other tools</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Issuing certificates</h5>
+        <ul class="docs-nav">
+          <li><a href="hierarchy.html">Certificate hierarchy</a></li>
+          <li><a href="leaf-certificates.html">Server and client certificates</a></li>
+          <li><a href="signing-csrs.html">Signing external CSRs</a></li>
+          <li><a href="listing.html">Listing and verification</a></li>
+          <li><a href="using-certificates.html">Using the certificates</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Security</h5>
+        <ul class="docs-nav">
+          <li><a href="name-constraints.html">Name constraints</a></li>
+          <li><a href="revocation.html">Revocation</a></li>
+          <li><a href="trust.html">Trusting the root CA</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Reference</h5>
+        <ul class="docs-nav">
+          <li><a href="cli-reference.html">CLI reference</a></li>
+          <li><a href="go-package.html">Go package</a></li>
+          <li><a href="agent-skill.html" class="active" aria-current="page">Agent Skill</a></li>
+          <li><a href="changelog.html">Changelog</a></li>
+        </ul>
+      </div>
+    </div>
+  </details><!-- /sidebar -->
+
+  <main class="docs-main">
+    <article class="docs-prose">
+      <!-- breadcrumb --><p class="breadcrumb"><a href="../">Home</a> › <a href="./">Docs</a> › Agent Skill</p><!-- /breadcrumb -->
+      <h1>Agent Skill</h1>
+      <p class="lead">homepki ships an <a href="https://code.claude.com/docs/en/skills">Agent Skill</a> compiled into the binary. Once installed, AI coding tools use homepki whenever a script, demo or test needs TLS or mTLS material, instead of hand-written <code>openssl</code> commands or ad-hoc self-signed certificates.</p>
+
+      <h2 id="what-it-is">What it is</h2>
+      <p>The skill is a single Markdown file, <code>SKILL.md</code>, with a short description that tells the tool when to load it and a body that tells it how to use homepki. It is the <code>SKILL.md</code> at the root of the <a href="https://github.com/bcollard/homepki">repository</a>, embedded in the binary at build time, so the installed copy always matches the installed release. Nothing is downloaded.</p>
+
+      <h2 id="install">Install</h2>
+<pre><code><span class="p">$</span> homepki skill install
+Installed homepki Agent Skill → ~/.claude/skills/homepki/SKILL.md
+Start a new AI coding session to pick it up.</code></pre>
+      <p>Start a new agent session after installing: tools read their skills directory at start-up.</p>
+      <table class="docs-table">
+        <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>homepki skill install</code></td><td>Write the skill to Claude Code's user skills directory. If a copy exists, print its path and leave it unchanged.</td></tr>
+          <tr><td><code>homepki skill install --force</code></td><td>Overwrite an existing copy.</td></tr>
+          <tr><td><code>homepki skill install --print</code></td><td>Write the skill to stdout instead, for another tool or a project-level skills directory.</td></tr>
+          <tr><td><code>homepki skill install --claude=false</code></td><td>Disable the Claude Code target. Without <code>--print</code> this is an error: there is no other target yet.</td></tr>
+          <tr><td><code>homepki skill path</code></td><td>Print the install path, <code>~/.claude/skills/homepki/SKILL.md</code>.</td></tr>
+        </tbody>
+      </table>
+<pre><code><span class="c"># a project-level skill, committed with the project</span>
+<span class="p">$</span> mkdir -p .claude/skills/homepki
+<span class="p">$</span> homepki skill install --print &gt; .claude/skills/homepki/SKILL.md</code></pre>
+
+      <h2 id="what-it-covers">What it covers</h2>
+      <p>The skill documents behaviour that <code>--help</code> does not show, so an agent gets it right the first time:</p>
+      <ul>
+        <li>the three tiers, how subjects and file names are derived, and the paths to wire into a recipe;</li>
+        <li>key types, validity, name constraints and Subject Alternative Names, including quoting <code>*</code> for zsh;</li>
+        <li><code>list -o json</code> and a <code>jq</code> check for broken chains, which is the reliable signal in scripts;</li>
+        <li>trust stores and when <code>sudo</code> prompts, so an unattended agent avoids hanging on a password;</li>
+        <li>signing external CSRs, PKCS#12 bundles and CRL revocation;</li>
+        <li>overwrite protection, what <code>--force</code> orphans on each tier, and how to use a throwaway workdir instead;</li>
+        <li>verifying by hand with <code>openssl</code>, and when not to use homepki.</li>
+      </ul>
+
+      <h2 id="updating">Updating after an upgrade</h2>
+      <p>The installed copy does not change when you upgrade homepki. Overwrite it so the skill describes the new release:</p>
+<pre><code><span class="p">$</span> brew update &amp;&amp; brew upgrade --cask homepki
+<span class="p">$</span> homepki skill install --force</code></pre>
+      <div class="callout tip"><span class="ico">✓</span><p>Edit <code>SKILL.md</code> in the repository, never an installed copy. The next <code>skill install --force</code> replaces any local edits.</p></div>
+
+      <!-- pager --><div class="doc-pager">
+        <a href="go-package.html"><span class="dir">← Previous</span><span class="ttl">Go package</span></a>
+        <a class="next" href="changelog.html"><span class="dir">Next →</span><span class="ttl">Changelog</span></a>
+      </div><!-- /pager -->
+    </article>
+  </main>
+</div>
+
+<!-- footer --><footer class="footer">
+  <div class="container">
+    <p>MIT licensed · <a href="https://github.com/bcollard/homepki">Source</a> · <a href="https://github.com/bcollard/homepki/releases">Releases</a> · <a href="https://github.com/bcollard/homepki/issues">Issues</a> · Built by <a href="https://github.com/bcollard">Baptiste Collard</a></p>
+  </div>
+</footer><!-- /footer -->
+
+<script src="search-index.js"></script>
+<script src="../site.js"></script>
+</body>
+</html>

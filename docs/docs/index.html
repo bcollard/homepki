@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>try{var t=localStorage.getItem('homepki-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+
+<title>homepki docs</title>
+<meta name="description" content="Documentation for homepki: a command line tool that creates a root CA, intermediate CAs and server or client TLS certificates for local development.">
+<link rel="canonical" href="https://bcollard.github.io/homepki/docs/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="homepki">
+<meta property="og:url" content="https://bcollard.github.io/homepki/docs/">
+<meta property="og:title" content="homepki documentation">
+<meta property="og:description" content="Guides and reference for homepki, a three-tier PKI for local development.">
+<meta name="theme-color" content="#f6faf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1513" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<!-- nav --><nav class="nav">
+  <a class="brand" href="../" aria-label="homepki home">
+    <img src="../mark.svg" width="28" height="28" alt="">
+    <strong>homepki</strong>
+  </a>
+  <div class="nav-search">
+    <input type="search" id="docsSearch" placeholder="Search docs…" aria-label="Search documentation" autocomplete="off">
+    <kbd class="nav-search-kbd">⌘K</kbd>
+    <ul class="docs-search-results" id="docsSearchResults" hidden></ul>
+  </div>
+  <div class="nav-right">
+    <a class="nav-home" href="../">Home</a>
+    <a class="nav-docs" href="../docs/">Docs</a>
+    <a class="nav-github" href="https://github.com/bcollard/homepki">GitHub</a>
+    <a class="nav-version" id="navVersion" href="https://github.com/bcollard/homepki/releases/latest" title="Latest release">v0.8.1</a>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle colour theme"><span class="sun">☀</span><span class="moon">☾</span><span class="auto">◐</span></button>
+  </div>
+</nav><!-- /nav -->
+
+<div class="docs-shell">
+  <!-- sidebar --><details class="docs-sidebar" id="docsSidebar">
+    <summary>Documentation menu</summary>
+    <div class="docs-nav-inner">
+      <div class="docs-nav-group">
+        <h5>Introduction</h5>
+        <ul class="docs-nav">
+          <li><a href="./" class="active" aria-current="page">Overview</a></li>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="comparison.html">vs. other tools</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Issuing certificates</h5>
+        <ul class="docs-nav">
+          <li><a href="hierarchy.html">Certificate hierarchy</a></li>
+          <li><a href="leaf-certificates.html">Server and client certificates</a></li>
+          <li><a href="signing-csrs.html">Signing external CSRs</a></li>
+          <li><a href="listing.html">Listing and verification</a></li>
+          <li><a href="using-certificates.html">Using the certificates</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Security</h5>
+        <ul class="docs-nav">
+          <li><a href="name-constraints.html">Name constraints</a></li>
+          <li><a href="revocation.html">Revocation</a></li>
+          <li><a href="trust.html">Trusting the root CA</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Reference</h5>
+        <ul class="docs-nav">
+          <li><a href="cli-reference.html">CLI reference</a></li>
+          <li><a href="go-package.html">Go package</a></li>
+          <li><a href="agent-skill.html">Agent Skill</a></li>
+          <li><a href="changelog.html">Changelog</a></li>
+        </ul>
+      </div>
+    </div>
+  </details><!-- /sidebar -->
+
+  <main class="docs-main">
+    <article class="docs-prose">
+      <!-- breadcrumb --><p class="breadcrumb"><a href="../">Home</a> › Docs</p><!-- /breadcrumb -->
+      <h1>homepki documentation</h1>
+      <p class="lead">homepki builds a three-tier PKI on your workstation: a self-signed root CA, intermediate CAs under it, and server or client certificates under each intermediate. It is a single Go binary for macOS and Linux with no OpenSSL dependency.</p>
+<pre><code><span class="p">$</span> homepki root-ca         -d runlocal.dev
+<span class="p">$</span> homepki intermediate-ca -d runlocal.dev -n bu1
+<span class="p">$</span> homepki server-cert     -d runlocal.dev -i bu1 -s kong-gateway
+<span class="p">$</span> homepki client-cert     -d runlocal.dev -i bu1 -c my-client</code></pre>
+      <p>New to homepki? Start with <a href="getting-started.html">Getting started</a>.</p>
+
+      <h2 id="introduction">Introduction</h2>
+      <div class="docs-card-grid">
+        <a class="docs-card" href="getting-started.html"><h3>Getting started</h3><p>Install homepki and issue a root CA, an intermediate and a leaf.</p></a>
+        <a class="docs-card" href="comparison.html"><h3>vs. other tools</h3><p>How homepki compares with mkcert, step, cfssl, easy-rsa, minica and certstrap.</p></a>
+        <a class="docs-card" href="faq.html"><h3>FAQ</h3><p>Production use, OpenSSL, re-running commands, starting over.</p></a>
+      </div>
+
+      <h2 id="issuing-certificates">Issuing certificates</h2>
+      <div class="docs-card-grid">
+        <a class="docs-card" href="hierarchy.html"><h3>Certificate hierarchy</h3><p>The three tiers, derived subjects, chain files and the file layout.</p></a>
+        <a class="docs-card" href="leaf-certificates.html"><h3>Server and client certificates</h3><p>SANs, key types, validity, PKCS#12 bundles and re-issuing.</p></a>
+        <a class="docs-card" href="signing-csrs.html"><h3>Signing external CSRs</h3><p>Issue a certificate for a key generated elsewhere.</p></a>
+        <a class="docs-card" href="listing.html"><h3>Listing and verification</h3><p>Expiry, chain checks, revocation status and JSON output.</p></a>
+        <a class="docs-card" href="using-certificates.html"><h3>Using the certificates</h3><p>Kubernetes, nginx, curl, OpenSSL, Java and Go.</p></a>
+      </div>
+
+      <h2 id="security">Security</h2>
+      <div class="docs-card-grid">
+        <a class="docs-card" href="name-constraints.html"><h3>Name constraints</h3><p>Limit which names a CA may issue for, enforced at issue time.</p></a>
+        <a class="docs-card" href="revocation.html"><h3>Revocation</h3><p>Revoke leaves and publish CRLs for servers that check them.</p></a>
+        <a class="docs-card" href="trust.html"><h3>Trusting the root CA</h3><p>System store on macOS and Linux, Firefox/NSS and Java.</p></a>
+      </div>
+
+      <h2 id="reference">Reference</h2>
+      <div class="docs-card-grid">
+        <a class="docs-card" href="cli-reference.html"><h3>CLI reference</h3><p>Every command and flag.</p></a>
+        <a class="docs-card" href="go-package.html"><h3>Go package</h3><p>Use pkg/pki to issue and verify certificates from Go code.</p></a>
+        <a class="docs-card" href="agent-skill.html"><h3>Agent Skill</h3><p>Teach AI coding tools to drive homepki.</p></a>
+        <a class="docs-card" href="changelog.html"><h3>Changelog</h3><p>What changed in each release.</p></a>
+      </div>
+
+      <!-- pager --><div class="doc-pager">
+        <a class="next" href="getting-started.html"><span class="dir">Next →</span><span class="ttl">Getting started</span></a>
+      </div><!-- /pager -->
+    </article>
+  </main>
+</div>
+
+<!-- footer --><footer class="footer">
+  <div class="container">
+    <p>MIT licensed · <a href="https://github.com/bcollard/homepki">Source</a> · <a href="https://github.com/bcollard/homepki/releases">Releases</a> · <a href="https://github.com/bcollard/homepki/issues">Issues</a> · Built by <a href="https://github.com/bcollard">Baptiste Collard</a></p>
+  </div>
+</footer><!-- /footer -->
+
+<script src="search-index.js"></script>
+<script src="../site.js"></script>
+</body>
+</html>

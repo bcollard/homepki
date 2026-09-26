@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>try{var t=localStorage.getItem('homepki-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+
+<title>Listing and verification – homepki docs</title>
+<meta name="description" content="List homepki root CAs, intermediates and leaves with expiry, chain verification, extended key usage and revocation status, as a table or JSON for scripts.">
+<link rel="canonical" href="https://bcollard.github.io/homepki/docs/listing.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="homepki">
+<meta property="og:url" content="https://bcollard.github.io/homepki/docs/listing.html">
+<meta property="og:title" content="Listing and verifying homepki certificates">
+<meta property="og:description" content="Expiry, chain of trust, key usage and revocation for every tier, with JSON output for scripts.">
+<meta name="theme-color" content="#f6faf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1513" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<!-- nav --><nav class="nav">
+  <a class="brand" href="../" aria-label="homepki home">
+    <img src="../mark.svg" width="28" height="28" alt="">
+    <strong>homepki</strong>
+  </a>
+  <div class="nav-search">
+    <input type="search" id="docsSearch" placeholder="Search docs…" aria-label="Search documentation" autocomplete="off">
+    <kbd class="nav-search-kbd">⌘K</kbd>
+    <ul class="docs-search-results" id="docsSearchResults" hidden></ul>
+  </div>
+  <div class="nav-right">
+    <a class="nav-home" href="../">Home</a>
+    <a class="nav-docs" href="../docs/">Docs</a>
+    <a class="nav-github" href="https://github.com/bcollard/homepki">GitHub</a>
+    <a class="nav-version" id="navVersion" href="https://github.com/bcollard/homepki/releases/latest" title="Latest release">v0.8.1</a>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle colour theme"><span class="sun">☀</span><span class="moon">☾</span><span class="auto">◐</span></button>
+  </div>
+</nav><!-- /nav -->
+
+<div class="docs-shell">
+  <!-- sidebar --><details class="docs-sidebar" id="docsSidebar">
+    <summary>Documentation menu</summary>
+    <div class="docs-nav-inner">
+      <div class="docs-nav-group">
+        <h5>Introduction</h5>
+        <ul class="docs-nav">
+          <li><a href="./">Overview</a></li>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="comparison.html">vs. other tools</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Issuing certificates</h5>
+        <ul class="docs-nav">
+          <li><a href="hierarchy.html">Certificate hierarchy</a></li>
+          <li><a href="leaf-certificates.html">Server and client certificates</a></li>
+          <li><a href="signing-csrs.html">Signing external CSRs</a></li>
+          <li><a href="listing.html" class="active" aria-current="page">Listing and verification</a></li>
+          <li><a href="using-certificates.html">Using the certificates</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Security</h5>
+        <ul class="docs-nav">
+          <li><a href="name-constraints.html">Name constraints</a></li>
+          <li><a href="revocation.html">Revocation</a></li>
+          <li><a href="trust.html">Trusting the root CA</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Reference</h5>
+        <ul class="docs-nav">
+          <li><a href="cli-reference.html">CLI reference</a></li>
+          <li><a href="go-package.html">Go package</a></li>
+          <li><a href="agent-skill.html">Agent Skill</a></li>
+          <li><a href="changelog.html">Changelog</a></li>
+        </ul>
+      </div>
+    </div>
+  </details><!-- /sidebar -->
+
+  <main class="docs-main">
+    <article class="docs-prose">
+      <!-- breadcrumb --><p class="breadcrumb"><a href="../">Home</a> › <a href="./">Docs</a> › Listing and verification</p><!-- /breadcrumb -->
+      <h1>Listing and verification</h1>
+      <p class="lead">Every tier has a <code>list</code> subcommand that reports expiry and verifies the chain of trust, as a table or as JSON.</p>
+
+      <h2 id="list-commands">The list commands</h2>
+      <p>Every tier has a <code>list</code> subcommand (aliases <code>ls</code> and <code>l</code>). Each row reports the expiry date, the days left, and whether the certificate verifies.</p>
+<pre><code><span class="p">$</span> homepki root-ca list                                  <span class="c"># every root CA in the workdir</span>
+<span class="p">$</span> homepki intermediate-ca list -d runlocal.dev
+<span class="p">$</span> homepki server-cert list     -d runlocal.dev -i bu1
+<span class="p">$</span> homepki client-cert list     -d runlocal.dev -i bu1</code></pre>
+      <p><code>root-ca list</code> takes no <code>--domain</code>. The intermediate list needs <code>--domain</code>, and the leaf lists also need <code>--intermediate</code>.</p>
+
+      <h2 id="what-is-verified">What each list verifies</h2>
+      <p>Verification runs in-process with Go's <code>crypto/x509</code>.</p>
+      <table class="docs-table">
+        <thead><tr><th>Command</th><th>A row is <code>✓ OK</code> when</th></tr></thead>
+        <tbody>
+          <tr><td><code>root-ca list</code></td><td>the root is a CA certificate, signed by its own key, and currently valid</td></tr>
+          <tr><td><code>intermediate-ca list</code></td><td>the intermediate is a CA certificate signed by the root, and currently valid</td></tr>
+          <tr><td><code>server-cert list</code></td><td>the leaf chains through the intermediate to the root, carries <code>serverAuth</code>, and is not in the intermediate's CRL</td></tr>
+          <tr><td><code>client-cert list</code></td><td>the same, with <code>clientAuth</code></td></tr>
+        </tbody>
+      </table>
+<pre><code><span class="p">$</span> homepki server-cert list -d runlocal.dev -i bu1
+Server Certificates for runlocal.dev/bu1:
+  NAME              EXPIRES     DAYS LEFT  CHAIN
+  ────────────────  ──────────  ─────────  ──────────
+  cli1.crt          2027-09-26  364        <span class="no">✗ INVALID: x509: certificate specifies an incompatible key usage</span>
+  kong-gateway.crt  2027-09-26  364        <span class="ok">✓ OK</span></code></pre>
+      <p>In this example a client certificate was copied into <code>server-tls/</code>. The extended key usage check catches it: a <code>clientAuth</code> certificate does not pass as a server certificate.</p>
+
+      <h3 id="revoked-leaves">Revoked leaves</h3>
+      <p>The leaf lists read the intermediate's CRL, when there is one, and report revoked certificates as invalid:</p>
+<pre><code>  cli1.crt  2027-09-26  364        <span class="no">✗ INVALID: revoked on 2026-09-26 (keyCompromise)</span></code></pre>
+      <p>See <a href="revocation.html">Revocation</a>.</p>
+
+      <h2 id="json-output">JSON output</h2>
+      <p>The table is coloured with ANSI escapes and its column widths depend on the content. In scripts, use <code>-o json</code> (or <code>--output json</code>):</p>
+<pre><code><span class="p">$</span> homepki client-cert list -d runlocal.dev -i bu1 -o json
+[
+  {
+    "name": "cli1.crt",
+    "expires": "2027-09-26",
+    "days_left": 364,
+    "chain_valid": false,
+    "chain_error": "revoked on 2026-09-26 (keyCompromise)"
+  }
+]</code></pre>
+      <table class="docs-table">
+        <thead><tr><th>Field</th><th>Content</th></tr></thead>
+        <tbody>
+          <tr><td><code>name</code></td><td>the root's literal name, the intermediate name, or the leaf file name</td></tr>
+          <tr><td><code>expires</code></td><td><code>NotAfter</code> as <code>YYYY-MM-DD</code>, or <code>unknown</code> when the file cannot be read</td></tr>
+          <tr><td><code>days_left</code></td><td>whole days until expiry; negative once expired, <code>-1</code> when unknown</td></tr>
+          <tr><td><code>chain_valid</code></td><td><code>true</code> when the row would show <code>✓ OK</code></td></tr>
+          <tr><td><code>chain_error</code></td><td>the reason, present only when <code>chain_valid</code> is <code>false</code></td></tr>
+        </tbody>
+      </table>
+      <p>An empty tier prints <code>[]</code> in JSON and <code>No server certificates found.</code> in the table, and exits 0. An empty list is not a failure signal.</p>
+
+      <h3 id="jq-examples">jq examples</h3>
+<pre><code><span class="c"># fail the script when any leaf does not verify</span>
+homepki server-cert list -d runlocal.dev -i bu1 -o json \
+  | jq -e 'all(.[]; .chain_valid)' &gt;/dev/null || echo "broken chain!"
+
+<span class="c"># leaves expiring within 30 days</span>
+homepki server-cert list -d runlocal.dev -i bu1 -o json \
+  | jq -r '.[] | select(.days_left &lt; 30) | .name'
+
+<span class="c"># why each invalid leaf fails</span>
+homepki client-cert list -d runlocal.dev -i bu1 -o json \
+  | jq -r '.[] | select(.chain_valid | not) | "\(.name): \(.chain_error)"'</code></pre>
+
+      <h2 id="after-force">Checking after --force</h2>
+      <p><code>--force</code> on a CA tier creates a new key, which orphans every certificate signed by the old one. The tier you replaced still reports <code>✓ OK</code>; only the tier below flips to invalid:</p>
+<pre><code><span class="p">$</span> homepki intermediate-ca -d runlocal.dev -n bu1 --force
+<span class="p">$</span> homepki intermediate-ca list -d runlocal.dev
+  bu1   2032-09-24  2189       <span class="ok">✓ OK</span>
+<span class="p">$</span> homepki server-cert list -d runlocal.dev -i bu1
+  kong-gateway.crt  2027-09-26  364        <span class="no">✗ INVALID: x509: certificate signed by unknown authority (possibly because of "crypto/rsa: verification error" while trying to verify candidate authority certificate "bu1.runlocal.dev")</span></code></pre>
+      <div class="callout warn"><span class="ico">⚠</span><p>After forcing a CA tier, check the lowest tier, not the one you touched. A certificate signed by a replaced key cannot be recovered: re-issue it.</p></div>
+
+      <h2 id="verifying-by-hand">Verifying by hand with OpenSSL</h2>
+      <p>OpenSSL is not needed to use homepki, but it is useful to inspect the results:</p>
+<pre><code>ROOT=~/.homepki/runlocal-dev
+CRT=$ROOT/bu1/server-tls/kong-gateway.crt
+KEY=$ROOT/bu1/server-tls/kong-gateway.key
+
+<span class="c"># chain: root as the anchor, intermediate as untrusted</span>
+openssl verify -CAfile $ROOT/ca/runlocal-dev-root-ca.crt \
+  -untrusted $ROOT/bu1/bu1-intermediate-ca.crt $CRT
+
+<span class="c"># subject, SANs and extended key usage</span>
+openssl x509 -in $CRT -noout -subject -ext subjectAltName,extendedKeyUsage
+
+<span class="c"># does the key match the certificate?</span>
+diff &lt;(openssl x509 -in $CRT -noout -pubkey) \
+     &lt;(openssl pkey -in $KEY -pubout) &amp;&amp; echo "key matches"</code></pre>
+      <p>The last check is the one <code>list</code> does not do: it reads certificates only. Run it after re-issuing a leaf if a server was reloaded with files from different runs.</p>
+
+      <!-- pager --><div class="doc-pager">
+        <a href="signing-csrs.html"><span class="dir">← Previous</span><span class="ttl">Signing external CSRs</span></a>
+        <a class="next" href="using-certificates.html"><span class="dir">Next →</span><span class="ttl">Using the certificates</span></a>
+      </div><!-- /pager -->
+    </article>
+  </main>
+</div>
+
+<!-- footer --><footer class="footer">
+  <div class="container">
+    <p>MIT licensed · <a href="https://github.com/bcollard/homepki">Source</a> · <a href="https://github.com/bcollard/homepki/releases">Releases</a> · <a href="https://github.com/bcollard/homepki/issues">Issues</a> · Built by <a href="https://github.com/bcollard">Baptiste Collard</a></p>
+  </div>
+</footer><!-- /footer -->
+
+<script src="search-index.js"></script>
+<script src="../site.js"></script>
+</body>
+</html>

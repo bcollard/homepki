@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>try{var t=localStorage.getItem('homepki-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+
+<title>Changelog – homepki docs</title>
+<meta name="description" content="What changed in each homepki release, from the first CLI to validity, PKCS#12, Ed25519, CRL revocation and Linux, Firefox and Java trust stores in v0.8.0.">
+<link rel="canonical" href="https://bcollard.github.io/homepki/docs/changelog.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="homepki">
+<meta property="og:url" content="https://bcollard.github.io/homepki/docs/changelog.html">
+<meta property="og:title" content="homepki changelog">
+<meta property="og:description" content="User-visible changes in each homepki release.">
+<meta name="theme-color" content="#f6faf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1513" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<!-- nav --><nav class="nav">
+  <a class="brand" href="../" aria-label="homepki home">
+    <img src="../mark.svg" width="28" height="28" alt="">
+    <strong>homepki</strong>
+  </a>
+  <div class="nav-search">
+    <input type="search" id="docsSearch" placeholder="Search docs…" aria-label="Search documentation" autocomplete="off">
+    <kbd class="nav-search-kbd">⌘K</kbd>
+    <ul class="docs-search-results" id="docsSearchResults" hidden></ul>
+  </div>
+  <div class="nav-right">
+    <a class="nav-home" href="../">Home</a>
+    <a class="nav-docs" href="../docs/">Docs</a>
+    <a class="nav-github" href="https://github.com/bcollard/homepki">GitHub</a>
+    <a class="nav-version" id="navVersion" href="https://github.com/bcollard/homepki/releases/latest" title="Latest release">v0.8.1</a>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle colour theme"><span class="sun">☀</span><span class="moon">☾</span><span class="auto">◐</span></button>
+  </div>
+</nav><!-- /nav -->
+
+<div class="docs-shell">
+  <!-- sidebar --><details class="docs-sidebar" id="docsSidebar">
+    <summary>Documentation menu</summary>
+    <div class="docs-nav-inner">
+      <div class="docs-nav-group">
+        <h5>Introduction</h5>
+        <ul class="docs-nav">
+          <li><a href="./">Overview</a></li>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="comparison.html">vs. other tools</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Issuing certificates</h5>
+        <ul class="docs-nav">
+          <li><a href="hierarchy.html">Certificate hierarchy</a></li>
+          <li><a href="leaf-certificates.html">Server and client certificates</a></li>
+          <li><a href="signing-csrs.html">Signing external CSRs</a></li>
+          <li><a href="listing.html">Listing and verification</a></li>
+          <li><a href="using-certificates.html">Using the certificates</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Security</h5>
+        <ul class="docs-nav">
+          <li><a href="name-constraints.html">Name constraints</a></li>
+          <li><a href="revocation.html">Revocation</a></li>
+          <li><a href="trust.html">Trusting the root CA</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Reference</h5>
+        <ul class="docs-nav">
+          <li><a href="cli-reference.html">CLI reference</a></li>
+          <li><a href="go-package.html">Go package</a></li>
+          <li><a href="agent-skill.html">Agent Skill</a></li>
+          <li><a href="changelog.html" class="active" aria-current="page">Changelog</a></li>
+        </ul>
+      </div>
+    </div>
+  </details><!-- /sidebar -->
+
+  <main class="docs-main">
+    <article class="docs-prose">
+      <!-- breadcrumb --><p class="breadcrumb"><a href="../">Home</a> › <a href="./">Docs</a> › Changelog</p><!-- /breadcrumb -->
+      <h1>Changelog</h1>
+      <p class="lead">User-visible changes in each release, newest first. Binaries and checksums are on the <a href="https://github.com/bcollard/homepki/releases">GitHub releases page</a>.</p>
+
+      <h2 id="v0-8-1">v0.8.1 · 2026-09-26</h2>
+      <ul>
+        <li><code>intermediate-ca</code> no longer prints <code>Note: validity capped at the issuer's expiry</code> for a default intermediate under a fresh root. Both default to 2190 days, so the intermediate overshot the root by the seconds between the two commands. The note now appears only when the cut is longer than an hour.</li>
+        <li>The website is split into a home page and a <a href="./">documentation section</a>, with search and a release badge.</li>
+      </ul>
+
+      <h2 id="v0-8-0">v0.8.0 · 2026-09-26</h2>
+      <ul>
+        <li><code>--validity</code> on every command that signs: days (<code>90d</code>) or a Go duration (<code>24h</code>). A certificate is capped at its issuer's expiry, with a note. See <a href="leaf-certificates.html">Server and client certificates</a>.</li>
+        <li><code>client-cert --san</code>, for URI SANs such as SPIFFE IDs.</li>
+        <li><code>--key-type ed25519</code>.</li>
+        <li><code>--pkcs12</code> and <code>--pkcs12-password</code> on <code>server-cert</code> and <code>client-cert</code>.</li>
+        <li>New <code>revoke</code> and <code>crl</code> commands: intermediate CRL, root CRL and a CRL chain file. Leaf <code>list</code> reports revoked certificates. See <a href="revocation.html">Revocation</a>.</li>
+        <li><code>trust</code> covers the Linux system store (Debian, Ubuntu, Alpine, Fedora, RHEL, Arch, openSUSE), Firefox/NSS through <code>certutil</code> and Java <code>cacerts</code> through <code>keytool</code>, selected with <code>--store</code>. See <a href="trust.html">Trusting the root CA</a>.</li>
+        <li>Go package: <code>VerifyRoot</code>, <code>VerifyIntermediate</code>, a nil-safe <code>VerifyChain</code>, <code>LoadCerts</code> for chain files, and <code>Permit*</code>/<code>Exclude*</code> builders for <code>NameConstraints</code>. See <a href="go-package.html">Go package</a>.</li>
+      </ul>
+      <div class="callout warn"><span class="ico">⚠</span><p><code>trust status -o json</code> gains a <code>stores</code> array, and <code>trusted</code> is now true only when every checked store accepts the root. Pass the same <code>--store</code> to <code>status</code> that you pass to <code>install</code>.</p></div>
+
+      <h2 id="v0-7-1">v0.7.1 · 2026-09-26</h2>
+      <ul>
+        <li><code>root-ca list</code> checks the self-signature, so a certificate that is not a root no longer lists as valid.</li>
+        <li>Unit tests for issuance and every command.</li>
+      </ul>
+
+      <h2 id="v0-7-0">v0.7.0 · 2026-09-26</h2>
+      <ul>
+        <li>Certificates are issued with Go's <code>crypto/x509</code>. OpenSSL no longer needs to be installed.</li>
+        <li>No CA database: re-issuing a subject overwrites its files. Workdirs from older releases keep working; their OpenSSL files are ignored and <code>--force</code> on a tier removes them.</li>
+        <li>Random 128-bit serial numbers, <code>NotBefore</code> backdated 5 minutes.</li>
+        <li>The signature digest follows the issuer's key: SHA-256 for RSA and P-256, SHA-384 for P-384, SHA-512 for P-521.</li>
+        <li>Leaves are verified against their chain before anything is written.</li>
+        <li><code>sign</code> takes only the subject and SANs from a request. <code>--name-constraint</code> no longer accepts <code>dirName</code>.</li>
+      </ul>
+
+      <h2 id="v0-6-0">v0.6.0 · 2026-09-26</h2>
+      <ul>
+        <li><code>--name-constraint</code> on <code>root-ca</code> and <code>intermediate-ca</code>, in openssl syntax, written as a critical extension. Leaves outside the constraints are refused. See <a href="name-constraints.html">Name constraints</a>.</li>
+      </ul>
+
+      <h2 id="v0-5-0">v0.5.0 · 2026-09-22</h2>
+      <ul>
+        <li>New <code>trust</code> command: install, remove and check a Root CA in the macOS System keychain.</li>
+        <li>New <code>sign</code> command for certificate requests generated elsewhere.</li>
+        <li><code>--key-type</code> for ECDSA keys: <code>ecdsa</code>/<code>ecdsa-p256</code>, <code>ecdsa-p384</code>, <code>ecdsa-p521</code>.</li>
+        <li>Generate commands refuse to overwrite existing material. <code>--force</code> replaces it.</li>
+        <li>The website at bcollard.github.io/homepki.</li>
+      </ul>
+
+      <h2 id="v0-4-0">v0.4.0 · 2026-09-18</h2>
+      <ul>
+        <li>New <code>skill</code> command: <code>skill install</code>, <code>skill path</code>, <code>skill install --print</code>. See <a href="agent-skill.html">Agent Skill</a>.</li>
+      </ul>
+
+      <h2 id="v0-3-0">v0.3.0 · 2026-05-24</h2>
+      <ul>
+        <li><code>server-cert --san</code> for extra Subject Alternative Names, with <code>DNS:</code>, <code>IP:</code>, <code>email:</code> and <code>URI:</code> prefixes or automatic detection.</li>
+      </ul>
+
+      <h2 id="v0-2-x">v0.2.0 – v0.2.4 · 2026-04-06 to 2026-04-11</h2>
+      <ul>
+        <li>Chain verification in every <code>list</code> subcommand, and <code>-o json</code> output (v0.2.0).</li>
+        <li>Short names: <code>ls</code> and <code>l</code> for <code>list</code>, <code>v</code> for <code>version</code> (v0.2.3).</li>
+        <li><code>server-cert list</code> and <code>client-cert list</code> report an empty list instead of an error when no leaf exists yet (v0.2.4).</li>
+        <li>Installed as a Homebrew cask: <code>brew install --cask homepki</code> (v0.2.2). Release packaging fixes (v0.2.1).</li>
+      </ul>
+
+      <h2 id="v0-1-x">v0.1.0 – v0.1.6 · 2025-12-04</h2>
+      <ul>
+        <li>First release as a Go CLI: <code>root-ca</code>, <code>intermediate-ca</code>, <code>server-cert</code> and <code>client-cert</code>, each with a <code>list</code> subcommand.</li>
+        <li>Releases built by GoReleaser and published to the <code>bcollard/homepki</code> Homebrew tap. v0.1.1 to v0.1.6 fixed the release pipeline only.</li>
+      </ul>
+
+      <!-- pager --><div class="doc-pager">
+        <a href="agent-skill.html"><span class="dir">← Previous</span><span class="ttl">Agent Skill</span></a>
+      </div><!-- /pager -->
+    </article>
+  </main>
+</div>
+
+<!-- footer --><footer class="footer">
+  <div class="container">
+    <p>MIT licensed · <a href="https://github.com/bcollard/homepki">Source</a> · <a href="https://github.com/bcollard/homepki/releases">Releases</a> · <a href="https://github.com/bcollard/homepki/issues">Issues</a> · Built by <a href="https://github.com/bcollard">Baptiste Collard</a></p>
+  </div>
+</footer><!-- /footer -->
+
+<script src="search-index.js"></script>
+<script src="../site.js"></script>
+</body>
+</html>

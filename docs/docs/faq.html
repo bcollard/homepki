@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>try{var t=localStorage.getItem('homepki-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+
+<title>FAQ – homepki docs</title>
+<meta name="description" content="Answers to common questions about homepki: production use, OpenSSL, platforms, re-issuing, trust, Ed25519 and subjects.">
+<link rel="canonical" href="https://bcollard.github.io/homepki/docs/faq.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="homepki">
+<meta property="og:url" content="https://bcollard.github.io/homepki/docs/faq.html">
+<meta property="og:title" content="homepki FAQ">
+<meta property="og:description" content="Common questions about homepki.">
+<meta name="theme-color" content="#f6faf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1513" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../styles.css">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@type": "FAQPage",
+ "mainEntity": [
+  {
+   "@type": "Question",
+   "name": "Can I use homepki for production certificates?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "No. Private keys are written unencrypted, there is no online CA, no ACME and no OCSP, and revocation is published only as CRL files. homepki is for local development, demos and tests. Use ACME/Let's Encrypt or your organisation's PKI for anything public-facing."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Does homepki need OpenSSL?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "No. homepki is a single Go binary. Key generation, signing and chain verification use Go's crypto/x509, so nothing else has to be installed. OpenSSL is still useful to inspect results by hand."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Which platforms are supported?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "macOS and Linux, on amd64 and arm64. There is no Windows binary."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Is it safe to re-run a generate command?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Yes. A generate command refuses to overwrite existing material: it exits non-zero, prints what is in the way, and changes nothing. Pass --force to replace it. On a CA tier that is still destructive, because every certificate below it stops verifying."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "How do I re-issue a leaf under the same name?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Pass --force. It writes a new key and certificate over the old pair. The key is regenerated, so anything serving the old pair has to be reloaded."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "How is homepki different from mkcert?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Both install their root into the system trust store, Firefox/NSS and Java; homepki does it on macOS and Linux, mkcert on Windows too. homepki adds intermediates, separate client certificates for mTLS, name constraints enforced when it issues, revocation with CRLs, and signing of CSRs generated elsewhere. mkcert issues leaves straight from its root."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Where are the files, and how do I start over?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Everything lives under one directory: --workdir, then $HOMEPKI_WORKDIR, then ~/.homepki. There is no delete command, so removing a PKI means rm -rf on that directory. Point HOMEPKI_WORKDIR at a temporary directory for a throwaway PKI."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Does any command prompt for input?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "No command asks for a passphrase or a subject. The only prompt is sudo's password, when trust install or trust uninstall changes the system trust store or a Java cacerts file the current user cannot write."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Why does my browser still warn after trust install?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Check three things: the server presents the intermediate after its leaf (the chain file), the name in the URL is one of the certificate's SANs, and the browser was restarted after the root was added. Firefox uses its own NSS store; homepki covers it when certutil is installed."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Can I use Ed25519 certificates in a browser?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "No. Chrome, Safari and Firefox reject Ed25519 certificates. Use RSA or ECDSA for anything a browser opens, and Ed25519 for service-to-service TLS between Go or OpenSSL 1.1.1+ peers."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Can I issue an already-expired certificate for a negative test?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "No. NotBefore is always 5 minutes in the past, and --validity must be positive. The shortest option is a very short --validity such as 1m, then wait for it to expire."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Can I choose the subject of a certificate?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Not with server-cert or client-cert: the subject is derived from the domain, intermediate and leaf name. To use another common name, generate a CSR with that subject (keeping the O and OU the intermediate requires) and sign it with homepki sign."
+   }
+  }
+ ]
+}
+</script>
+</head>
+<body>
+
+<!-- nav --><nav class="nav">
+  <a class="brand" href="../" aria-label="homepki home">
+    <img src="../mark.svg" width="28" height="28" alt="">
+    <strong>homepki</strong>
+  </a>
+  <div class="nav-search">
+    <input type="search" id="docsSearch" placeholder="Search docs…" aria-label="Search documentation" autocomplete="off">
+    <kbd class="nav-search-kbd">⌘K</kbd>
+    <ul class="docs-search-results" id="docsSearchResults" hidden></ul>
+  </div>
+  <div class="nav-right">
+    <a class="nav-home" href="../">Home</a>
+    <a class="nav-docs" href="../docs/">Docs</a>
+    <a class="nav-github" href="https://github.com/bcollard/homepki">GitHub</a>
+    <a class="nav-version" id="navVersion" href="https://github.com/bcollard/homepki/releases/latest" title="Latest release">v0.8.1</a>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle colour theme"><span class="sun">☀</span><span class="moon">☾</span><span class="auto">◐</span></button>
+  </div>
+</nav><!-- /nav -->
+
+<div class="docs-shell">
+  <!-- sidebar --><details class="docs-sidebar" id="docsSidebar">
+    <summary>Documentation menu</summary>
+    <div class="docs-nav-inner">
+      <div class="docs-nav-group">
+        <h5>Introduction</h5>
+        <ul class="docs-nav">
+          <li><a href="./">Overview</a></li>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="comparison.html">vs. other tools</a></li>
+          <li><a href="faq.html" class="active" aria-current="page">FAQ</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Issuing certificates</h5>
+        <ul class="docs-nav">
+          <li><a href="hierarchy.html">Certificate hierarchy</a></li>
+          <li><a href="leaf-certificates.html">Server and client certificates</a></li>
+          <li><a href="signing-csrs.html">Signing external CSRs</a></li>
+          <li><a href="listing.html">Listing and verification</a></li>
+          <li><a href="using-certificates.html">Using the certificates</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Security</h5>
+        <ul class="docs-nav">
+          <li><a href="name-constraints.html">Name constraints</a></li>
+          <li><a href="revocation.html">Revocation</a></li>
+          <li><a href="trust.html">Trusting the root CA</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Reference</h5>
+        <ul class="docs-nav">
+          <li><a href="cli-reference.html">CLI reference</a></li>
+          <li><a href="go-package.html">Go package</a></li>
+          <li><a href="agent-skill.html">Agent Skill</a></li>
+          <li><a href="changelog.html">Changelog</a></li>
+        </ul>
+      </div>
+    </div>
+  </details><!-- /sidebar -->
+
+  <main class="docs-main">
+    <article class="docs-prose">
+      <!-- breadcrumb --><p class="breadcrumb"><a href="../">Home</a> › <a href="./">Docs</a> › FAQ</p><!-- /breadcrumb -->
+      <h1>Frequently asked questions</h1>
+      <p class="lead">Short answers, with links to the pages that cover each topic in full.</p>
+
+      <h2 id="production">Can I use homepki for production certificates?</h2>
+      <p>No. Private keys are written unencrypted, there is no online CA, no ACME and no OCSP, and revocation is published only as CRL files. homepki is for local development, demos and tests. Use ACME/Let&#x27;s Encrypt or your organisation&#x27;s PKI for anything public-facing.</p>
+
+      <h2 id="openssl">Does homepki need OpenSSL?</h2>
+      <p>No. homepki is a single Go binary. Key generation, signing and chain verification use Go&#x27;s <code>crypto/x509</code>, so nothing else has to be installed. OpenSSL is still useful to inspect results by hand.</p>
+
+      <h2 id="platforms">Which platforms are supported?</h2>
+      <p>macOS and Linux, on amd64 and arm64. There is no Windows binary.</p>
+
+      <h2 id="re-run">Is it safe to re-run a generate command?</h2>
+      <p>Yes. A generate command refuses to overwrite existing material: it exits non-zero, prints what is in the way, and changes nothing. Pass <code>--force</code> to replace it. On a CA tier that is still destructive, because every certificate below it stops verifying. See <a href="hierarchy.html#overwrite-protection">Overwrite protection</a>.</p>
+
+      <h2 id="re-issue">How do I re-issue a leaf under the same name?</h2>
+      <p>Pass <code>--force</code>. It writes a new key and certificate over the old pair. The key is regenerated, so anything serving the old pair has to be reloaded.</p>
+
+      <h2 id="mkcert">How is homepki different from mkcert?</h2>
+      <p>Both install their root into the system trust store, Firefox/NSS and Java; homepki does it on macOS and Linux, mkcert on Windows too. homepki adds intermediates, separate client certificates for mTLS, name constraints enforced when it issues, revocation with CRLs, and signing of CSRs generated elsewhere. mkcert issues leaves straight from its root. See <a href="comparison.html">vs. other tools</a>.</p>
+
+      <h2 id="start-over">Where are the files, and how do I start over?</h2>
+      <p>Everything lives under one directory: <code>--workdir</code>, then <code>$<code>HOMEPKI_WORKDIR</code></code>, then <code>~/.homepki</code>. There is no delete command, so removing a PKI means <code>rm -rf</code> on that directory. Point HOMEPKI_WORKDIR at a temporary directory for a throwaway PKI. See <a href="getting-started.html#where-files-go">Where the files go</a>.</p>
+
+      <h2 id="prompts">Does any command prompt for input?</h2>
+      <p>No command asks for a passphrase or a subject. The only prompt is <code>sudo</code>&#x27;s password, when <code>trust install</code> or <code>trust uninstall</code> changes the system trust store or a Java <code>cacerts</code> file the current user cannot write.</p>
+
+      <h2 id="browser-warning">Why does my browser still warn after trust install?</h2>
+      <p>Check three things: the server presents the intermediate after its leaf (the chain file), the name in the URL is one of the certificate&#x27;s SANs, and the browser was restarted after the root was added. Firefox uses its own NSS store; homepki covers it when <code>certutil</code> is installed. See <a href="trust.html">Trusting the root CA</a>.</p>
+
+      <h2 id="ed25519">Can I use Ed25519 certificates in a browser?</h2>
+      <p>No. Chrome, Safari and Firefox reject Ed25519 certificates. Use RSA or ECDSA for anything a browser opens, and Ed25519 for service-to-service TLS between Go or OpenSSL 1.1.1+ peers. See <a href="leaf-certificates.html">Key types</a>.</p>
+
+      <h2 id="expired">Can I issue an already-expired certificate for a negative test?</h2>
+      <p>No. <code>NotBefore</code> is always 5 minutes in the past, and <code>--validity</code> must be positive. The shortest option is a very short --validity such as <code>1m</code>, then wait for it to expire.</p>
+
+      <h2 id="subject">Can I choose the subject of a certificate?</h2>
+      <p>Not with <code>server-cert</code> or <code>client-cert</code>: the subject is derived from the domain, intermediate and leaf name. To use another common name, generate a CSR with that subject (keeping the O and OU the intermediate requires) and sign it with <code>homepki sign</code>. See <a href="signing-csrs.html">Signing external CSRs</a>.</p>
+
+      <!-- pager --><div class="doc-pager">
+        <a href="comparison.html"><span class="dir">← Previous</span><span class="ttl">vs. other tools</span></a>
+        <a class="next" href="hierarchy.html"><span class="dir">Next →</span><span class="ttl">Certificate hierarchy</span></a>
+      </div><!-- /pager -->
+    </article>
+  </main>
+</div>
+
+<!-- footer --><footer class="footer">
+  <div class="container">
+    <p>MIT licensed · <a href="https://github.com/bcollard/homepki">Source</a> · <a href="https://github.com/bcollard/homepki/releases">Releases</a> · <a href="https://github.com/bcollard/homepki/issues">Issues</a> · Built by <a href="https://github.com/bcollard">Baptiste Collard</a></p>
+  </div>
+</footer><!-- /footer -->
+
+<script src="search-index.js"></script>
+<script src="../site.js"></script>
+</body>
+</html>

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>try{var t=localStorage.getItem('homepki-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+
+<title>Using the certificates – homepki docs</title>
+<meta name="description" content="Use homepki certificates with Kubernetes secrets, nginx TLS and mTLS with CRLs, curl, openssl s_client, Java keystores and a Go HTTP client.">
+<link rel="canonical" href="https://bcollard.github.io/homepki/docs/using-certificates.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="homepki">
+<meta property="og:url" content="https://bcollard.github.io/homepki/docs/using-certificates.html">
+<meta property="og:title" content="Using homepki certificates">
+<meta property="og:description" content="Kubernetes, nginx, curl, OpenSSL, Java and Go recipes.">
+<meta name="theme-color" content="#f6faf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1513" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<!-- nav --><nav class="nav">
+  <a class="brand" href="../" aria-label="homepki home">
+    <img src="../mark.svg" width="28" height="28" alt="">
+    <strong>homepki</strong>
+  </a>
+  <div class="nav-search">
+    <input type="search" id="docsSearch" placeholder="Search docs…" aria-label="Search documentation" autocomplete="off">
+    <kbd class="nav-search-kbd">⌘K</kbd>
+    <ul class="docs-search-results" id="docsSearchResults" hidden></ul>
+  </div>
+  <div class="nav-right">
+    <a class="nav-home" href="../">Home</a>
+    <a class="nav-docs" href="../docs/">Docs</a>
+    <a class="nav-github" href="https://github.com/bcollard/homepki">GitHub</a>
+    <a class="nav-version" id="navVersion" href="https://github.com/bcollard/homepki/releases/latest" title="Latest release">v0.8.1</a>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle colour theme"><span class="sun">☀</span><span class="moon">☾</span><span class="auto">◐</span></button>
+  </div>
+</nav><!-- /nav -->
+
+<div class="docs-shell">
+  <!-- sidebar --><details class="docs-sidebar" id="docsSidebar">
+    <summary>Documentation menu</summary>
+    <div class="docs-nav-inner">
+      <div class="docs-nav-group">
+        <h5>Introduction</h5>
+        <ul class="docs-nav">
+          <li><a href="./">Overview</a></li>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="comparison.html">vs. other tools</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Issuing certificates</h5>
+        <ul class="docs-nav">
+          <li><a href="hierarchy.html">Certificate hierarchy</a></li>
+          <li><a href="leaf-certificates.html">Server and client certificates</a></li>
+          <li><a href="signing-csrs.html">Signing external CSRs</a></li>
+          <li><a href="listing.html">Listing and verification</a></li>
+          <li><a href="using-certificates.html" class="active" aria-current="page">Using the certificates</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Security</h5>
+        <ul class="docs-nav">
+          <li><a href="name-constraints.html">Name constraints</a></li>
+          <li><a href="revocation.html">Revocation</a></li>
+          <li><a href="trust.html">Trusting the root CA</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Reference</h5>
+        <ul class="docs-nav">
+          <li><a href="cli-reference.html">CLI reference</a></li>
+          <li><a href="go-package.html">Go package</a></li>
+          <li><a href="agent-skill.html">Agent Skill</a></li>
+          <li><a href="changelog.html">Changelog</a></li>
+        </ul>
+      </div>
+    </div>
+  </details><!-- /sidebar -->
+
+  <main class="docs-main">
+    <article class="docs-prose">
+      <!-- breadcrumb --><p class="breadcrumb"><a href="../">Home</a> › <a href="./">Docs</a> › Using the certificates</p><!-- /breadcrumb -->
+      <h1>Using the certificates</h1>
+      <p class="lead">Recipes for handing homepki material to Kubernetes, nginx, curl, OpenSSL, Java and Go. The examples use the <code>runlocal.dev</code> root, the <code>bu1</code> intermediate, a <code>kong-gateway</code> server leaf and a <code>my-client</code> client leaf.</p>
+
+<pre><code>ROOT=${HOMEPKI_WORKDIR:-$HOME/.homepki}/runlocal-dev
+CA_BUNDLE=$ROOT/bu1/bu1-intermediate-ca-chain.crt    <span class="c"># intermediate + root</span>
+ROOT_CA=$ROOT/ca/runlocal-dev-root-ca.crt
+SERVER_CRT=$ROOT/bu1/server-tls/kong-gateway.crt
+SERVER_KEY=$ROOT/bu1/server-tls/kong-gateway.key
+CLIENT_CRT=$ROOT/bu1/client-tls/my-client.crt
+CLIENT_KEY=$ROOT/bu1/client-tls/my-client.key</code></pre>
+
+      <h2 id="serve-the-chain">Serve the leaf with its intermediate</h2>
+      <p>Clients trust the root, not the intermediate, so a server must present its leaf followed by the intermediate. homepki writes no full-chain file; build one:</p>
+<pre><code><span class="p">$</span> cat "$SERVER_CRT" "$ROOT/bu1/bu1-intermediate-ca.crt" &gt; kong-gateway-fullchain.crt</code></pre>
+      <div class="callout warn"><span class="ico">⚠</span><p>A server that presents only its leaf fails with <code>unable to get local issuer certificate</code> (OpenSSL) or <code>certificate signed by unknown authority</code> (Go) on every client that trusts only the root.</p></div>
+
+      <h2 id="kubernetes">Kubernetes</h2>
+      <p>A TLS secret for an Ingress or a Gateway, with the chain, and a CA secret for services that verify client certificates:</p>
+<pre><code><span class="p">$</span> kubectl create secret tls kong-gateway-tls \
+    --cert=kong-gateway-fullchain.crt --key="$SERVER_KEY"
+
+<span class="p">$</span> kubectl create secret generic kong-ca \
+    --from-file=ca.crt="$CA_BUNDLE"</code></pre>
+      <p>Keys are unencrypted, so they load without a passphrase. To have cert-manager issue leaves in the cluster, give its CA issuer an intermediate: <code>kubectl create secret tls bu1-ca --cert=$ROOT/bu1/bu1-intermediate-ca.crt --key=$ROOT/bu1/private/bu1-intermediate-ca.key</code>.</p>
+
+      <h2 id="nginx">nginx</h2>
+      <h3 id="nginx-server-tls">Server TLS</h3>
+<pre><code>server {
+    listen 443 ssl;
+    server_name kong-gateway.bu1.runlocal.dev;
+
+    ssl_certificate     /etc/nginx/tls/kong-gateway-fullchain.crt;
+    ssl_certificate_key /etc/nginx/tls/kong-gateway.key;
+}</code></pre>
+      <h3 id="nginx-mtls">mTLS with revocation</h3>
+      <p>Add client verification against the CA bundle. <code>ssl_crl</code> makes nginx check revocation on every CA in the chain, so it needs the CRL chain file, which holds a CRL for the intermediate and one for the root. Write it with <code>homepki crl -d runlocal.dev -i bu1</code> before the first revocation.</p>
+<pre><code>    ssl_client_certificate /etc/nginx/tls/bu1-intermediate-ca-chain.crt;
+    ssl_verify_client      on;
+    ssl_verify_depth       2;
+    ssl_crl                /etc/nginx/tls/bu1-crl-chain.crl;</code></pre>
+      <p>After <code>homepki revoke</code>, copy the new <code>bu1-crl-chain.crl</code> and run <code>nginx -s reload</code>: nginx reads CRLs at startup and reload only. A CRL past its next update makes nginx reject every client certificate; re-run <code>homepki crl</code> before then. See <a href="revocation.html">Revocation</a>.</p>
+
+      <h2 id="curl">curl</h2>
+<pre><code><span class="c"># server authentication: trust the root</span>
+<span class="p">$</span> curl --cacert "$ROOT_CA" https://kong-gateway.bu1.runlocal.dev/
+
+<span class="c"># mTLS: also present the client certificate</span>
+<span class="p">$</span> curl --cacert "$ROOT_CA" --cert "$CLIENT_CRT" --key "$CLIENT_KEY" \
+    https://kong-gateway.bu1.runlocal.dev/
+
+<span class="c"># the name does not resolve yet: pin it to an address</span>
+<span class="p">$</span> curl --cacert "$ROOT_CA" --resolve kong-gateway.bu1.runlocal.dev:443:127.0.0.1 \
+    https://kong-gateway.bu1.runlocal.dev/</code></pre>
+      <p>After <a href="trust.html"><code>homepki trust install</code></a>, curl builds that use the system store need no <code>--cacert</code>. A client certificate sent alone is verified by servers that trust the CA bundle, since the bundle contains the intermediate.</p>
+
+      <h2 id="openssl-s-client">Check a server with OpenSSL</h2>
+<pre><code><span class="p">$</span> openssl s_client -connect 127.0.0.1:443 -servername kong-gateway.bu1.runlocal.dev \
+    -CAfile "$ROOT_CA" -verify_return_error -brief &lt;/dev/null
+<span class="c"># with a client certificate</span>
+<span class="p">$</span> openssl s_client -connect 127.0.0.1:443 -servername kong-gateway.bu1.runlocal.dev \
+    -CAfile "$ROOT_CA" -cert "$CLIENT_CRT" -key "$CLIENT_KEY" -verify_return_error -brief &lt;/dev/null</code></pre>
+      <p><code>-verify_return_error</code> makes a broken chain fail the handshake instead of printing a warning. <code>Verification: OK</code> in the output means the server sent a chain that reaches the root.</p>
+      <p>To check files without a server:</p>
+<pre><code><span class="p">$</span> openssl verify -CAfile "$CA_BUNDLE" "$SERVER_CRT"
+<span class="p">$</span> openssl x509 -in "$SERVER_CRT" -noout -subject -ext subjectAltName,extendedKeyUsage
+<span class="p">$</span> diff &lt;(openssl x509 -in "$SERVER_CRT" -noout -pubkey) \
+       &lt;(openssl pkey -in "$SERVER_KEY" -pubout) &amp;&amp; echo "key matches"</code></pre>
+
+      <h2 id="java">Java</h2>
+      <p>Issue the leaf with <code>--pkcs12</code> to get a keystore holding the key, the leaf and the CA chain (password <code>changeit</code> unless <code>--pkcs12-password</code> is set). Build a truststore from the root:</p>
+<pre><code><span class="p">$</span> homepki client-cert -d runlocal.dev -i bu1 -c my-client --pkcs12
+<span class="p">$</span> keytool -importcert -noprompt -alias runlocal-dev-root \
+    -file "$ROOT_CA" -keystore truststore.p12 -storetype PKCS12 -storepass changeit
+
+<span class="p">$</span> java -Djavax.net.ssl.keyStore=$ROOT/bu1/client-tls/my-client.p12 \
+       -Djavax.net.ssl.keyStorePassword=changeit -Djavax.net.ssl.keyStoreType=PKCS12 \
+       -Djavax.net.ssl.trustStore=truststore.p12 \
+       -Djavax.net.ssl.trustStorePassword=changeit -Djavax.net.ssl.trustStoreType=PKCS12 \
+       -jar app.jar</code></pre>
+      <p>To trust the root in every Java program of a JDK instead, run <code>homepki trust install -d runlocal.dev --store java</code> with <code>JAVA_HOME</code> set.</p>
+
+      <h2 id="go">Go</h2>
+      <p>A Go HTTP client for mTLS. <a href="go-package.html"><code>pki.LoadCerts</code></a> reads both certificates of the chain file, intermediate first:</p>
+<pre><code>import (
+    "crypto/tls"
+    "crypto/x509"
+    "net/http"
+
+    "github.com/bcollard/homepki/pkg/pki"
+)
+
+func client(dir string) (*http.Client, error) {
+    cas, err := pki.LoadCerts(dir + "/bu1/bu1-intermediate-ca-chain.crt")
+    if err != nil {
+        return nil, err
+    }
+    roots := x509.NewCertPool()
+    roots.AddCert(cas[len(cas)-1]) <span class="c">// the root is last in the chain file</span>
+
+    pair, err := tls.LoadX509KeyPair(dir+"/bu1/client-tls/my-client.crt", dir+"/bu1/client-tls/my-client.key")
+    if err != nil {
+        return nil, err
+    }
+    pair.Certificate = append(pair.Certificate, cas[0].Raw) <span class="c">// send the intermediate too</span>
+
+    return &amp;http.Client{Transport: &amp;http.Transport{TLSClientConfig: &amp;tls.Config{
+        RootCAs:      roots,
+        Certificates: []tls.Certificate{pair},
+    }}}, nil
+}</code></pre>
+      <p>Without the <code>pkg/pki</code> import, <code>x509.CertPool.AppendCertsFromPEM</code> on the chain file works too; it adds both CAs as trust anchors.</p>
+
+      <!-- pager --><div class="doc-pager">
+        <a href="listing.html"><span class="dir">← Previous</span><span class="ttl">Listing and verification</span></a>
+        <a class="next" href="name-constraints.html"><span class="dir">Next →</span><span class="ttl">Name constraints</span></a>
+      </div><!-- /pager -->
+    </article>
+  </main>
+</div>
+
+<!-- footer --><footer class="footer">
+  <div class="container">
+    <p>MIT licensed · <a href="https://github.com/bcollard/homepki">Source</a> · <a href="https://github.com/bcollard/homepki/releases">Releases</a> · <a href="https://github.com/bcollard/homepki/issues">Issues</a> · Built by <a href="https://github.com/bcollard">Baptiste Collard</a></p>
+  </div>
+</footer><!-- /footer -->
+
+<script src="search-index.js"></script>
+<script src="../site.js"></script>
+</body>
+</html>

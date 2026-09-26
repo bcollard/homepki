@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>try{var t=localStorage.getItem('homepki-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+
+<title>Signing external CSRs – homepki docs</title>
+<meta name="description" content="Sign a certificate signing request generated elsewhere with a homepki intermediate CA: subject policy, SANs taken from the request, ignored extensions and output options.">
+<link rel="canonical" href="https://bcollard.github.io/homepki/docs/signing-csrs.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="homepki">
+<meta property="og:url" content="https://bcollard.github.io/homepki/docs/signing-csrs.html">
+<meta property="og:title" content="Signing external CSRs with homepki">
+<meta property="og:description" content="Issue a certificate for a key generated elsewhere, without the key ever reaching homepki.">
+<meta name="theme-color" content="#f6faf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1513" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<!-- nav --><nav class="nav">
+  <a class="brand" href="../" aria-label="homepki home">
+    <img src="../mark.svg" width="28" height="28" alt="">
+    <strong>homepki</strong>
+  </a>
+  <div class="nav-search">
+    <input type="search" id="docsSearch" placeholder="Search docs…" aria-label="Search documentation" autocomplete="off">
+    <kbd class="nav-search-kbd">⌘K</kbd>
+    <ul class="docs-search-results" id="docsSearchResults" hidden></ul>
+  </div>
+  <div class="nav-right">
+    <a class="nav-home" href="../">Home</a>
+    <a class="nav-docs" href="../docs/">Docs</a>
+    <a class="nav-github" href="https://github.com/bcollard/homepki">GitHub</a>
+    <a class="nav-version" id="navVersion" href="https://github.com/bcollard/homepki/releases/latest" title="Latest release">v0.8.1</a>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle colour theme"><span class="sun">☀</span><span class="moon">☾</span><span class="auto">◐</span></button>
+  </div>
+</nav><!-- /nav -->
+
+<div class="docs-shell">
+  <!-- sidebar --><details class="docs-sidebar" id="docsSidebar">
+    <summary>Documentation menu</summary>
+    <div class="docs-nav-inner">
+      <div class="docs-nav-group">
+        <h5>Introduction</h5>
+        <ul class="docs-nav">
+          <li><a href="./">Overview</a></li>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="comparison.html">vs. other tools</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Issuing certificates</h5>
+        <ul class="docs-nav">
+          <li><a href="hierarchy.html">Certificate hierarchy</a></li>
+          <li><a href="leaf-certificates.html">Server and client certificates</a></li>
+          <li><a href="signing-csrs.html" class="active" aria-current="page">Signing external CSRs</a></li>
+          <li><a href="listing.html">Listing and verification</a></li>
+          <li><a href="using-certificates.html">Using the certificates</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Security</h5>
+        <ul class="docs-nav">
+          <li><a href="name-constraints.html">Name constraints</a></li>
+          <li><a href="revocation.html">Revocation</a></li>
+          <li><a href="trust.html">Trusting the root CA</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Reference</h5>
+        <ul class="docs-nav">
+          <li><a href="cli-reference.html">CLI reference</a></li>
+          <li><a href="go-package.html">Go package</a></li>
+          <li><a href="agent-skill.html">Agent Skill</a></li>
+          <li><a href="changelog.html">Changelog</a></li>
+        </ul>
+      </div>
+    </div>
+  </details><!-- /sidebar -->
+
+  <main class="docs-main">
+    <article class="docs-prose">
+      <!-- breadcrumb --><p class="breadcrumb"><a href="../">Home</a> › <a href="./">Docs</a> › Signing external CSRs</p><!-- /breadcrumb -->
+      <h1>Signing external CSRs</h1>
+      <p class="lead">Issue a certificate for a request generated elsewhere. The private key never reaches homepki.</p>
+
+      <h2 id="when-to-use-sign">When to use sign</h2>
+      <p>Use <code>homepki sign</code> when the private key is generated somewhere else: a service that makes its own key, a cert-manager request, or a hand-written <code>openssl req</code>. Only the request goes in and only the certificate comes out. homepki never sees the private key.</p>
+<pre><code><span class="p">$</span> openssl req -new -nodes -newkey rsa:2048 -keyout my-service.key -out my-service.csr \
+    -subj "/O=runlocal-dev/OU=bu1/CN=my-service.bu1.runlocal.dev" \
+    -addext "subjectAltName=DNS:my-service.bu1.runlocal.dev,DNS:my-service.local"
+
+<span class="p">$</span> homepki sign -d runlocal.dev -i bu1 --csr my-service.csr
+Signing my-service.csr as a server certificate for my-service.bu1.runlocal.dev under runlocal.dev/bu1
+Certificate written to ~/.homepki/runlocal-dev/bu1/server-tls/my-service.crt
+Serve it with the chain file ~/.homepki/runlocal-dev/bu1/bu1-intermediate-ca-chain.crt; the private key stays wherever you generated it.</code></pre>
+
+      <h2 id="subject-policy">Subject policy</h2>
+      <p>The intermediate signs only requests that carry its own organization and organizational unit:</p>
+      <table class="docs-table">
+        <thead><tr><th>Field</th><th>Required value</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td><code>O</code></td><td>the root CA's literal name: the domain with dots replaced by dashes</td><td><code>runlocal-dev</code></td></tr>
+          <tr><td><code>OU</code></td><td>the intermediate name</td><td><code>bu1</code></td></tr>
+          <tr><td><code>CN</code></td><td>any value</td><td><code>my-service.bu1.runlocal.dev</code></td></tr>
+        </tbody>
+      </table>
+      <p>A request that does not match is rejected, and the error prints the <code>-subj</code> to use:</p>
+<pre><code><span class="p">$</span> homepki sign -d runlocal.dev -i bu1 --csr bad.csr
+<span class="no">Error: bad.csr: the request subject does not satisfy the CA policy:</span>
+  want O=runlocal-dev, got O=acme
+  want OU=bu1, got OU=(none)
+
+Regenerate the request with a matching subject, for example:
+  openssl req -new -nodes -newkey rsa:2048 -keyout my.key -out my.csr \
+    -subj "/O=runlocal-dev/OU=bu1/CN=my-service.bu1.runlocal.dev"</code></pre>
+
+      <h2 id="what-is-copied">What is copied from the request</h2>
+      <ul>
+        <li><strong>Subject Alternative Names</strong>: every DNS, IP, email and URI SAN in the request.</li>
+        <li><strong>Subject</strong>: the C, ST, L, O, OU and CN fields.</li>
+      </ul>
+      <p>Every other extension the request asks for is ignored. Basic constraints, key usage and extended key usage are set by homepki, so a request cannot ask to become a CA. The new certificate is verified against its chain before it is written, so the CA's <a href="name-constraints.html">name constraints</a> apply to the SANs in the request.</p>
+      <p>A request without SANs produces a certificate without SANs, with a warning:</p>
+<pre><code><span class="p">$</span> homepki sign -d runlocal.dev -i bu1 --csr nosan.csr
+Warning: the request carries no Subject Alternative Names — most TLS clients reject a certificate matched on its common name alone.
+Signing nosan.csr as a server certificate for nosan.bu1.runlocal.dev under runlocal.dev/bu1
+Certificate written to ~/.homepki/runlocal-dev/bu1/server-tls/nosan.crt</code></pre>
+
+      <h2 id="flags">Flags</h2>
+      <table class="docs-table">
+        <thead><tr><th>Flag</th><th>Effect</th></tr></thead>
+        <tbody>
+          <tr><td><code>-d</code>, <code>--domain</code></td><td>Root CA domain. Required.</td></tr>
+          <tr><td><code>-i</code>, <code>--intermediate</code></td><td>Intermediate CA that signs. Required.</td></tr>
+          <tr><td><code>--csr</code></td><td>Path to the PEM request. Required.</td></tr>
+          <tr><td><code>--type</code></td><td><code>server</code> (default) or <code>client</code>. Picks the extended key usage and the destination directory.</td></tr>
+          <tr><td><code>--name</code></td><td>File name for the certificate. Default: the first label of the request's common name.</td></tr>
+          <tr><td><code>--out</code></td><td>Write the certificate to this path instead of <code>server-tls/</code> or <code>client-tls/</code>.</td></tr>
+          <tr><td><code>--validity</code></td><td>Days (<code>90d</code>) or a duration (<code>24h</code>). Default 365 days, capped at the intermediate's expiry.</td></tr>
+          <tr><td><code>-f</code>, <code>--force</code></td><td>Replace an existing certificate at the output path.</td></tr>
+        </tbody>
+      </table>
+<pre><code><span class="p">$</span> homepki sign -d runlocal.dev -i bu1 --csr my-client.csr --type client --name my-client
+<span class="p">$</span> homepki sign -d runlocal.dev -i bu1 --csr my-service.csr --out ./my-service.crt --validity 90d</code></pre>
+      <p>Without <code>--out</code> the certificate lands in <code>&lt;intermediate&gt;/server-tls/&lt;name&gt;.crt</code> or <code>client-tls/&lt;name&gt;.crt</code>, and the <code>list</code> commands report it like any generated leaf. There is no <code>.key</code> next to it: the key stays where the request was made.</p>
+      <p>Signing refuses to overwrite an existing certificate at the output path unless you pass <code>--force</code>.</p>
+
+      <h2 id="revoking-signed-certificates">Revoking a signed certificate</h2>
+      <p>A certificate written with <code>--out</code> is outside the PKI tree, so <code>revoke</code> takes its path:</p>
+<pre><code><span class="p">$</span> homepki revoke -d runlocal.dev -i bu1 --cert ./my-service.crt</code></pre>
+      <p>One written to the default location can be revoked by name with <code>--server</code> or <code>--client</code>. See <a href="revocation.html">Revocation</a>.</p>
+
+      <!-- pager --><div class="doc-pager">
+        <a href="leaf-certificates.html"><span class="dir">← Previous</span><span class="ttl">Server and client certificates</span></a>
+        <a class="next" href="listing.html"><span class="dir">Next →</span><span class="ttl">Listing and verification</span></a>
+      </div><!-- /pager -->
+    </article>
+  </main>
+</div>
+
+<!-- footer --><footer class="footer">
+  <div class="container">
+    <p>MIT licensed · <a href="https://github.com/bcollard/homepki">Source</a> · <a href="https://github.com/bcollard/homepki/releases">Releases</a> · <a href="https://github.com/bcollard/homepki/issues">Issues</a> · Built by <a href="https://github.com/bcollard">Baptiste Collard</a></p>
+  </div>
+</footer><!-- /footer -->
+
+<script src="search-index.js"></script>
+<script src="../site.js"></script>
+</body>
+</html>

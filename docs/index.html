@@ -1,19 +1,23 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="auto">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>try{var t=localStorage.getItem('homepki-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
 
 <title>homepki – three-tier PKI for local development</title>
-<meta name="description" content="A command line tool that creates a root CA, intermediate CAs, and server or client TLS certificates on your workstation. Verifies chains of trust, supports name constraints, signs external requests, revokes with CRLs, and installs the root into the macOS or Linux, Firefox and Java trust stores. A single Go binary with no OpenSSL dependency.">
+<meta name="description" content="A command line tool that creates a root CA, intermediate CAs, and server or client TLS certificates on your workstation. Verifies chains, enforces name constraints, revokes with CRLs, and installs the root into the macOS or Linux, Firefox and Java trust stores. One Go binary, no OpenSSL needed.">
 <link rel="canonical" href="https://bcollard.github.io/homepki/">
-<link rel="icon" href="mark.svg" type="image/svg+xml">
-
 <meta property="og:type" content="website">
-<meta property="og:title" content="homepki – three-tier PKI for local development">
-<meta property="og:description" content="Root CA, intermediate CAs, and server or client leaves, one command per tier. Chains are verified in-process, RSA, ECDSA or Ed25519, with JSON output for scripts. No OpenSSL needed.">
+<meta property="og:site_name" content="homepki">
 <meta property="og:url" content="https://bcollard.github.io/homepki/">
+<meta property="og:title" content="homepki – three-tier PKI for local development">
+<meta property="og:description" content="Root CA, intermediate CAs, and server or client certificates, one command per tier. Chains verified in-process, JSON output for scripts, no OpenSSL needed.">
 <meta name="twitter:card" content="summary">
+<meta name="theme-color" content="#f6faf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1513" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
 
 <script type="application/ld+json">
 {
@@ -33,14 +37,13 @@
     "serverAuth and clientAuth leaf certificates for mTLS",
     "Chain of trust verification including extended key usage",
     "JSON output for scripting",
-    "Subject Alternative Names with automatic IP and DNS classification",
     "RSA, ECDSA or Ed25519 keys per tier",
-    "Configurable validity per certificate, down to minutes",
-    "PKCS#12 bundles for Java and Windows",
+    "Configurable validity per certificate",
+    "PKCS#12 bundles",
     "Certificate revocation with CRLs",
+    "Name constraints enforced at issue time",
     "Installs the root CA into the macOS and Linux system trust stores, Firefox/NSS and Java",
     "Signs certificate requests generated elsewhere",
-    "Refuses to overwrite existing certificates unless forced",
     "Includes an Agent Skill for AI coding tools"
   ],
   "isAccessibleForFree": true,
@@ -48,591 +51,98 @@
   "author": { "@type": "Person", "name": "Baptiste Collard", "url": "https://github.com/bcollard" }
 }
 </script>
-
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "FAQPage",
-  "mainEntity": [
-    {
-      "@type": "Question",
-      "name": "Can I use homepki for production certificates?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "No. Private keys are written unencrypted, there is no online CA, no ACME and no OCSP, and revocation is published only as CRL files. homepki is for local development, demos and tests. Use ACME/Let's Encrypt or your organisation's PKI for anything public-facing."
-      }
-    },
-    {
-      "@type": "Question",
-      "name": "Does homepki need OpenSSL?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "No. homepki is a single Go binary. Key generation, signing and chain verification use Go's crypto/x509, so nothing else has to be installed."
-      }
-    },
-    {
-      "@type": "Question",
-      "name": "How is homepki different from mkcert?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "Both install their root into the system trust store, Firefox/NSS and Java; homepki does it on macOS and Linux, mkcert on Windows too. The difference is the hierarchy: homepki creates intermediates and separate client certificates, for mTLS or for giving a service a CA bundle, enforces name constraints when it issues, revokes certificates with CRLs, and signs CSRs generated elsewhere. mkcert issues leaves straight from its root."
-      }
-    },
-    {
-      "@type": "Question",
-      "name": "Is it safe to re-run a generate command?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "Yes. A generate command refuses to overwrite existing material: it exits non-zero, prints what is in the way, and changes nothing. Pass --force to replace it deliberately. On a CA tier that is still destructive, because every certificate below it stops verifying."
-      }
-    }
-  ]
-}
-</script>
-
-<style>
-  :root {
-    --accent:   #0f6f5c;
-    --accent-d: #0a5346;
-    --ink:      #14171a;
-    --muted:    #56605e;
-    --line:     #dde5e2;
-    --bg:       #f6faf8;
-    --bg-alt:   #ffffff;
-    --code-bg:  rgba(20, 23, 26, .06);
-    --warn:     #b4470e;
-    --good:     #0b6e3f;
-    --bad:      #b42318;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --accent:   #3fbf9f;
-      --accent-d: #6fd4bb;
-      --ink:      #edf2f0;
-      --muted:    #94a29e;
-      --line:     #2a3633;
-      --bg:       #0f1513;
-      --bg-alt:   #161e1c;
-      --code-bg:  rgba(237, 242, 240, .09);
-      --warn:     #e8863f;
-      --good:     #4ade80;
-      --bad:      #f87171;
-    }
-  }
-
-  * { box-sizing: border-box }
-
-  body {
-    margin: 0;
-    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, "Noto Sans", sans-serif;
-    color: var(--ink);
-    background: var(--bg);
-    -webkit-font-smoothing: antialiased;
-  }
-
-  .wrap { max-width: 62rem; margin: 0 auto; padding: 0 1.25rem }
-
-  a { color: var(--accent); text-underline-offset: 2px }
-  a:hover { color: var(--accent-d) }
-
-  code, pre {
-    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  }
-  code {
-    font-size: .875em;
-    background: var(--code-bg);
-    padding: .15em .4em;
-    border-radius: 4px;
-  }
-  pre {
-    background: var(--code-bg);
-    border-radius: 8px;
-    padding: 1rem 1.1rem;
-    overflow-x: auto;
-    font-size: .84rem;
-    line-height: 1.6;
-    border: 1px solid var(--line);
-    max-width: 46rem;
-  }
-  pre code { background: none; padding: 0; font-size: inherit }
-  pre.wide { max-width: none }
-  .c { color: var(--muted) }
-  .ok { color: var(--good) }
-  .no { color: var(--bad) }
-
-  /* ---- hero ---- */
-  .hero {
-    text-align: center;
-    padding: 4.5rem 0 3.5rem;
-    border-bottom: 1px solid var(--line);
-  }
-  .hero img.mark { width: 76px; height: 76px }
-  .hero h1 {
-    font-size: clamp(2.1rem, 5vw, 3rem);
-    margin: 1.1rem 0 .5rem;
-    letter-spacing: -.02em;
-  }
-  .tagline {
-    font-size: clamp(1.05rem, 2.2vw, 1.3rem);
-    color: var(--muted);
-    max-width: 36rem;
-    margin: 0 auto 2rem;
-  }
-  .cta { display: flex; gap: .75rem; justify-content: center; flex-wrap: wrap }
-  .btn {
-    display: inline-block;
-    padding: .7rem 1.35rem;
-    border-radius: 8px;
-    font-weight: 600;
-    font-size: .95rem;
-    text-decoration: none;
-    border: 1px solid var(--accent);
-  }
-  .btn-primary { background: var(--accent); color: #fff }
-  .btn-primary:hover { background: var(--accent-d); border-color: var(--accent-d); color: #fff }
-  .btn-ghost { color: var(--accent); background: transparent }
-  .note { font-size: .85rem; color: var(--muted); margin-top: 1rem }
-
-  /* The dark accent is a light mint, so white label text on it only reaches
-     2.3:1. Use the page ink instead, which clears AA comfortably. */
-  @media (prefers-color-scheme: dark) {
-    .btn-primary, .btn-primary:hover { color: #0f1513 }
-  }
-
-  /* ---- sections ---- */
-  section { padding: 3.25rem 0; border-bottom: 1px solid var(--line) }
-  section.alt { background: var(--bg-alt) }
-  h2 { font-size: 1.55rem; margin: 0 0 .5rem; letter-spacing: -.01em }
-  h3 { font-size: 1.05rem; margin: 1.75rem 0 .35rem }
-  .lede { color: var(--muted); margin: 0 0 1.75rem; max-width: 46rem }
-  p { max-width: 46rem }
-
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
-    gap: 1.5rem 2rem;
-    margin-top: 1.5rem;
-  }
-  .grid h3 { margin-top: 0 }
-  .grid p { margin: 0; font-size: .93rem; color: var(--muted) }
-
-  ul.plain { list-style: none; padding: 0; max-width: 46rem }
-  ul.plain li { padding: .45rem 0 .45rem 1.6rem; position: relative }
-  ul.plain li::before {
-    content: "";
-    position: absolute; left: 0; top: 1.05em;
-    width: .5rem; height: .5rem; border-radius: 50%;
-    background: var(--accent);
-  }
-
-  table.stores { border-collapse: collapse; width: 100%; max-width: 46rem; margin: 1.5rem 0; font-size: .93rem }
-  table.stores th, table.stores td { text-align: left; vertical-align: top; padding: .55rem .75rem; border-bottom: 1px solid var(--line) }
-  table.stores th { color: var(--muted); font-weight: 600; font-size: .8rem }
-  table.stores td:first-child { white-space: nowrap }
-  table.stores td + td { overflow-wrap: anywhere }
-
-  dl.faq { max-width: 46rem }
-  dl.faq dt { font-weight: 600; margin-top: 1.5rem }
-  dl.faq dd { margin: .35rem 0 0; color: var(--muted) }
-  dl.faq dd pre { margin: .7rem 0 0 }
-
-  .callout {
-    border-left: 3px solid var(--warn);
-    background: var(--code-bg);
-    padding: .9rem 1.1rem;
-    border-radius: 0 6px 6px 0;
-    margin: 1.5rem 0;
-    max-width: 46rem;
-  }
-  .callout p { margin: 0 }
-  .callout p + p { margin-top: .6rem }
-
-  /* minmax(0,1fr): without it the implicit track sizes to the widest
-     command and the grid item overflows the page on a phone */
-  .tiers { display: grid; grid-template-columns: minmax(0, 1fr); gap: .5rem; margin: 1.5rem 0 0; max-width: 46rem }
-  .tier {
-    display: flex; gap: .9rem; align-items: baseline;
-    border: 1px solid var(--line); border-radius: 8px;
-    padding: .8rem 1rem; background: var(--bg-alt);
-  }
-  .tier b { font-size: .8rem; color: var(--muted); font-weight: 600; flex: 0 0 auto; min-width: 5.5rem }
-  /* the command can be wider than a phone: let it scroll inside the row
-     rather than pushing the page into a horizontal scroll */
-  .tier code {
-    background: none; padding: 0; font-size: .84rem;
-    flex: 1 1 auto; min-width: 0; overflow-x: auto; white-space: pre;
-  }
-
-  @media (max-width: 34rem) {
-    /* stretch, not baseline: a baseline-aligned column item keeps its
-       intrinsic width and drags the whole page into a horizontal scroll */
-    .tier { flex-direction: column; align-items: stretch; gap: .3rem }
-    .tier b { min-width: 0 }
-  }
-
-  footer {
-    padding: 2.5rem 0 3.5rem;
-    font-size: .9rem;
-    color: var(--muted);
-    text-align: center;
-  }
-  footer a { color: var(--muted) }
-</style>
 </head>
 <body>
 
+<!-- nav --><nav class="nav">
+  <a class="brand" href="./" aria-label="homepki home">
+    <img src="mark.svg" width="28" height="28" alt="">
+    <strong>homepki</strong>
+  </a>
+  <div class="nav-right">
+    <a class="nav-home" href="./">Home</a>
+    <a class="nav-docs" href="docs/">Docs</a>
+    <a class="nav-github" href="https://github.com/bcollard/homepki">GitHub</a>
+    <a class="nav-version" id="navVersion" href="https://github.com/bcollard/homepki/releases/latest" title="Latest release">v0.8.1</a>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle colour theme"><span class="sun">☀</span><span class="moon">☾</span><span class="auto">◐</span></button>
+  </div>
+</nav><!-- /nav -->
+
 <header class="hero">
-  <div class="wrap">
-    <img class="mark" src="mark.svg" alt="">
+  <div class="container">
+    <img class="mark" src="mark.svg" width="72" height="72" alt="">
     <h1>homepki</h1>
-    <p class="tagline">Creates a root CA, intermediate CAs, and server or client TLS certificates on your workstation. One command per tier.</p>
+    <p class="lede">Creates a root CA, intermediate CAs, and server or client TLS certificates on your workstation. One command per tier.</p>
     <div class="cta">
-      <a class="btn btn-primary" href="#install">Install</a>
-      <a class="btn btn-ghost" href="https://github.com/bcollard/homepki">GitHub</a>
+      <a class="btn btn-primary" href="docs/getting-started.html">Get started</a>
+      <a class="btn btn-ghost" href="docs/">Documentation</a>
     </div>
     <p class="note">Free and MIT licensed. macOS and Linux. One binary, no OpenSSL needed.</p>
   </div>
 </header>
 
-<section>
-  <div class="wrap">
-    <h2>Three tiers, one command each</h2>
-    <p class="lede">A self-signed certificate works until something needs to verify a chain of trust. homepki creates all three tiers, keys included, from a single Go binary with nothing else to install.</p>
+<section class="home-section" id="install">
+  <div class="container">
+    <h2>Install</h2>
+    <p class="sub">With Homebrew, or download a binary from the <a href="https://github.com/bcollard/homepki/releases/latest">latest release</a>.</p>
+    <div class="install-box">
+      <button class="copy-btn" type="button" data-copy="brew tap bcollard/homepki && brew install --cask homepki">Copy</button>
+<pre><code><span class="p">$</span> brew tap bcollard/homepki
+<span class="p">$</span> brew install --cask homepki</code></pre>
+    </div>
+  </div>
+</section>
 
+<section class="home-section">
+  <div class="container">
+    <h2>Three tiers, four commands</h2>
+    <p class="sub">Each command writes its key and certificate and returns. The intermediate also gets a chain file to hand to clients as a CA bundle.</p>
     <div class="tiers">
       <div class="tier"><b>Root CA</b><code>homepki root-ca -d runlocal.dev</code></div>
       <div class="tier"><b>Intermediate</b><code>homepki intermediate-ca -d runlocal.dev -n bu1</code></div>
       <div class="tier"><b>Server leaf</b><code>homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway</code></div>
       <div class="tier"><b>Client leaf</b><code>homepki client-cert -d runlocal.dev -i bu1 -c my-client</code></div>
     </div>
-
-    <p style="margin-top:1.75rem">Each command is synchronous: the files are on disk and usable when it returns. Run several intermediates under one root to separate tenants or environments. Leaves under one intermediate are independent of leaves under another.</p>
   </div>
 </section>
 
-<section class="alt">
-  <div class="wrap">
-    <h2>Chain verification</h2>
-    <p class="lede">Every tier has a <code>list</code> subcommand that reports expiry, days remaining, whether the certificate chains to its issuer, and for leaves whether it is revoked. Verification runs in-process with Go's <code>crypto/x509</code>, so there is no tool output to parse.</p>
-
-<pre class="wide"><code>$ homepki server-cert list -d runlocal.dev -i bu1
-Server Certificates for runlocal.dev/bu1:
-  NAME              EXPIRES     DAYS LEFT  CHAIN
-  ────────────────  ──────────  ─────────  ──────────
-  kong-gateway.crt  2027-09-18  364        <span class="ok">✓ OK</span>
-  stale.crt         2027-04-02  195        <span class="no">✗ INVALID: x509: certificate signed by unknown authority</span></code></pre>
-
-    <p>Extended key usage is checked as well, so a <code>clientAuth</code> certificate does not pass as a server certificate:</p>
-
-<pre class="wide"><code>  cli1.crt          2027-09-18  364        <span class="no">✗ INVALID: x509: certificate specifies an incompatible key usage</span></code></pre>
-
-    <h3>JSON for scripts</h3>
-    <p>The table uses colour and its column widths depend on the content. Use <code>-o json</code> in scripts:</p>
-
-<pre><code>homepki server-cert list -d runlocal.dev -i bu1 -o json \
-  | jq -e 'all(.[]; .chain_valid)' &gt;/dev/null || echo "broken chain!"</code></pre>
-  </div>
-</section>
-
-<section>
-  <div class="wrap">
-    <h2>Client and server certificates for mTLS</h2>
-    <p class="lede">Server and client leaves are separate commands, each with the matching extended key usage. The intermediate also gets a chain file to use as a trust store.</p>
-
-<pre><code>ROOT=~/.homepki/runlocal-dev
-
-$ROOT/bu1/bu1-intermediate-ca-chain.crt   <span class="c"># intermediate + root, the CA bundle</span>
-$ROOT/bu1/server-tls/kong-gateway.crt     <span class="c"># serverAuth leaf + .key</span>
-$ROOT/bu1/client-tls/my-client.crt        <span class="c"># clientAuth leaf + .key</span>
-$ROOT/bu1/server-tls/kong-gateway.p12     <span class="c"># with --pkcs12: key + leaf + chain</span></code></pre>
-
-    <p>Keys are written unencrypted, so no command prompts for a passphrase and the files load directly into a server config or a Kubernetes secret:</p>
-
-<pre><code>kubectl create secret tls kong-gateway-tls \
-  --cert=$ROOT/bu1/server-tls/kong-gateway.crt \
-  --key=$ROOT/bu1/server-tls/kong-gateway.key
-
-kubectl create secret generic kong-ca \
-  --from-file=ca.crt=$ROOT/bu1/bu1-intermediate-ca-chain.crt</code></pre>
-
-    <div class="callout">
-      <p>Key files are mode <code>0600</code> and CA <code>private/</code> directories <code>0700</code>. The keys themselves are not encrypted, so treat the working directory as sensitive and keep it out of version control.</p>
+<section class="home-section">
+  <div class="container">
+    <div class="feature-grid">
+      <a class="feature" href="docs/listing.html">
+        <h3>Chains verified</h3>
+        <p>Every <code>list</code> checks the chain, the key usage and revocation, with JSON output for scripts.</p>
+      </a>
+      <a class="feature" href="docs/trust.html">
+        <h3>System, Firefox and Java trust</h3>
+        <p>Installs the root into the macOS or Linux system store, Firefox profiles and the JDK.</p>
+      </a>
+      <a class="feature" href="docs/name-constraints.html">
+        <h3>Name constraints</h3>
+        <p>Limit a root to your own domains. Leaves outside them are refused at issue time.</p>
+      </a>
+      <a class="feature" href="docs/revocation.html">
+        <h3>Revocation</h3>
+        <p>Revoke a leaf and get CRL files for nginx and OpenSSL.</p>
+      </a>
+      <a class="feature" href="docs/leaf-certificates.html">
+        <h3>Server and client leaves</h3>
+        <p>Separate EKUs for mTLS, SANs, RSA, ECDSA or Ed25519 keys, custom validity, PKCS#12.</p>
+      </a>
+      <a class="feature" href="docs/agent-skill.html">
+        <h3>Agent Skill</h3>
+        <p>Ships a skill so AI coding tools issue certificates with homepki instead of raw OpenSSL.</p>
+      </a>
     </div>
   </div>
 </section>
 
-<section class="alt">
-  <div class="wrap">
-    <h2>Subject Alternative Names</h2>
-    <p class="lede">The leaf's common name is always the first DNS SAN. Add more with a repeatable <code>--san</code>. Bare values are classified automatically, and a prefix sets the type explicitly.</p>
-
-<pre><code>homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway \
-  --san kong.local \
-  --san 192.168.1.10 \
-  --san 'DNS:*.kong.local' \
-  --san IP:::1</code></pre>
-
-<pre><code>X509v3 Subject Alternative Name:
-    DNS:kong-gateway.bu1.runlocal.dev, DNS:kong.local, DNS:*.kong.local,
-    IP Address:192.168.1.10, IP Address:0:0:0:0:0:0:0:1</code></pre>
-
-    <p><code>client-cert</code> takes <code>--san</code> too, for example a SPIFFE ID as a <code>URI</code> SAN:</p>
-
-<pre><code>homepki client-cert -d runlocal.dev -i bu1 -c my-client \
-  --san URI:spiffe://runlocal.dev/ns/default/sa/my-client</code></pre>
-
-    <p>Anything that parses as an address becomes an <code>IP</code> entry, everything else <code>DNS</code>. The <code>DNS:</code>, <code>IP:</code>, <code>email:</code> and <code>URI:</code> prefixes override that. An invalid address after <code>IP:</code> is rejected instead of being treated as a hostname.</p>
-
-    <div class="callout">
-      <p>Quote any SAN containing <code>*</code>. An unquoted <code>--san DNS:*.kong.local</code> is expanded by the shell before homepki receives it, and zsh fails the command with <code>no matches found</code>.</p>
-    </div>
+<!-- footer --><footer class="footer">
+  <div class="container">
+    <p>MIT licensed · <a href="https://github.com/bcollard/homepki">Source</a> · <a href="https://github.com/bcollard/homepki/releases">Releases</a> · <a href="https://github.com/bcollard/homepki/issues">Issues</a> · Built by <a href="https://github.com/bcollard">Baptiste Collard</a></p>
   </div>
-</section>
+</footer><!-- /footer -->
 
-<section>
-  <div class="wrap">
-    <h2>Key types and validity</h2>
-    <p class="lede">Every generate command takes <code>--key-type</code>. RSA-2048 is the default; ECDSA is available on P-256, P-384 and P-521, and Ed25519 as <code>ed25519</code>.</p>
-
-<pre><code>homepki root-ca         -d runlocal.dev --key-type ecdsa
-homepki intermediate-ca -d runlocal.dev -n bu1 --key-type ecdsa
-homepki server-cert     -d runlocal.dev -i bu1 -s kong-gateway --key-type ecdsa-p384</code></pre>
-
-    <p>Tiers are independent, so an ECDSA leaf under an RSA intermediate is fine. The signature digest follows the issuing CA's key: SHA-256 for RSA and P-256, SHA-384 for P-384, SHA-512 for P-521. An Ed25519 CA signs with Ed25519, which has no separate digest. An unrecognised value is rejected before anything is written to disk.</p>
-
-    <div class="callout">
-      <p>Browsers do not accept Ed25519 certificates. Use Ed25519 for service-to-service TLS between Go or OpenSSL 1.1.1+ peers, and RSA or ECDSA for anything a browser opens.</p>
-    </div>
-
-    <h3>Validity</h3>
-    <p>Every command that signs takes <code>--validity</code>, as days (<code>90d</code>) or a Go duration (<code>24h</code>, <code>30m</code>). The defaults are 2190 days for CAs and 365 days for leaves.</p>
-
-<pre><code>homepki root-ca     -d runlocal.dev --validity 3650d
-homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway --validity 24h
-homepki sign        -d runlocal.dev -i bu1 --csr my-service.csr --validity 90d</code></pre>
-
-    <p>A certificate never outlives its issuer. A longer value is capped at the issuer's expiry, and the command prints a note when that happens. Short-lived leaves let you test certificate rotation without waiting a year.</p>
-  </div>
-</section>
-
-<section class="alt">
-  <div class="wrap">
-    <h2>Nothing is overwritten by accident</h2>
-    <p class="lede">A generate command refuses to replace material that already exists. It exits non-zero, names the files in the way, and changes nothing.</p>
-
-<pre class="wide"><code>$ homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway
-<span class="no">Error: a server certificate named "kong-gateway" already exists under runlocal.dev/bu1:</span>
-  ~/.homepki/runlocal-dev/bu1/server-tls/kong-gateway.crt
-  ~/.homepki/runlocal-dev/bu1/server-tls/kong-gateway.key
-
-Re-issuing overwrites its private key, so anything already serving that pair
-breaks. Pass --force to replace it, or issue under another name</code></pre>
-
-    <p><code>--force</code> on a leaf replaces the key and certificate. There is no certificate database to clean up, so re-issuing under the same name is one command:</p>
-
-<pre><code>homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway \
-  --san kong.local --san 10.0.0.5 --force</code></pre>
-
-    <div class="callout">
-      <p><code>--force</code> on a CA tier is the destructive one: a new key orphans every certificate below it. The tier you replaced keeps reporting <code>✓ OK</code>, so check the tier <em>below</em> it.</p>
-    </div>
-  </div>
-</section>
-
-<section>
-  <div class="wrap">
-    <h2>Trust the root CA</h2>
-    <p class="lede">Add the root CA to the system trust store, Firefox and Java, and browsers, curl and JVMs stop warning about certificates issued under it.</p>
-
-<pre><code>homepki trust install   -d runlocal.dev                  <span class="c"># every store available, asks for sudo</span>
-homepki trust install   -d runlocal.dev --store nss,java <span class="c"># only Firefox and Java, no sudo</span>
-homepki trust status                                     <span class="c"># every root CA in the workdir</span>
-homepki trust uninstall -d runlocal.dev</code></pre>
-
-    <table class="stores">
-      <thead><tr><th><code>--store</code></th><th>Where the root goes</th></tr></thead>
-      <tbody>
-        <tr><td><code>system</code></td><td>macOS: the System keychain. Linux: the anchor directory of Debian, Ubuntu and Alpine, Fedora and RHEL, Arch, or openSUSE, then the bundle is rebuilt with <code>update-ca-certificates</code>, <code>update-ca-trust</code> or <code>trust extract-compat</code>.</td></tr>
-        <tr><td><code>nss</code></td><td>Every Firefox profile, and on Linux the Chrome/Chromium NSS database, through <code>certutil</code> (<code>brew install nss</code>, <code>apt install libnss3-tools</code>).</td></tr>
-        <tr><td><code>java</code></td><td>The <code>cacerts</code> keystore of the JDK at <code>$JAVA_HOME</code>, through <code>keytool</code>.</td></tr>
-      </tbody>
-    </table>
-
-<pre class="wide"><code>$ homepki trust status -d runlocal.dev
-Root CA trust:
-  runlocal-dev             <span class="no">✗ partly trusted</span>
-      <span class="ok">✓ system</span> /Library/Keychains/System.keychain
-      <span class="ok">✓ nss   </span> ~/Library/Application Support/Firefox/Profiles/x1y2.default-release
-      <span class="no">✗ java  </span> /opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home/lib/security/cacerts (alias homepki-runlocal-dev not in the keystore)</code></pre>
-
-    <p>Without <code>--store</code>, homepki uses every store it finds: the system store, NSS when a profile and <code>certutil</code> both exist, and Java when <code>JAVA_HOME</code> is set. A store named with <code>--store</code> must be available, or the command fails. <code>status</code> needs no privileges and takes <code>-o json</code>, so a script can check <code>.trusted</code> before asking for a password. The system store, and a <code>cacerts</code> file you cannot write, are changed under <code>sudo</code>.</p>
-
-    <div class="callout">
-      <p>Trusting the root is not enough on its own: the server must present <code>&lt;name&gt;-intermediate-ca-chain.crt</code>, or a client cannot build the path from the leaf to the trusted root. Restart Firefox and Java processes after installing.</p>
-    </div>
-  </div>
-</section>
-
-<section class="alt">
-  <div class="wrap">
-    <h2>Limit what a CA can issue</h2>
-    <p class="lede">Before you trust a root system-wide, restrict it to your own names. A root limited to <code>.klimax.internal</code> cannot vouch for any other site, even if its key leaks.</p>
-
-<pre><code>homepki root-ca -d klimax.internal \
-  --name-constraint "permitted;DNS:.klimax.internal"
-
-homepki intermediate-ca -d klimax.internal -n bu1 \
-  --name-constraint "permitted;DNS:.bu1.klimax.internal" \
-  --name-constraint "IP:10.0.0.0/8"</code></pre>
-
-    <p><code>--name-constraint</code> takes OpenSSL syntax, <code>permitted;</code> or <code>excluded;</code> then <code>DNS</code>, <code>IP</code>, <code>email</code>, or <code>URI</code>, and can be repeated. <code>permitted;</code> can be left out, and IP ranges can be written as CIDR. <code>.klimax.internal</code> matches subdomains only, while <code>klimax.internal</code> also matches the domain itself. Go, macOS, Chrome and Firefox all enforce constraints on a root.</p>
-
-    <p>homepki checks every new leaf against its chain before writing it. If a name is not allowed, nothing is written and the command exits non-zero:</p>
-
-<pre class="wide"><code>$ homepki server-cert -d klimax.internal -i bu1 -s gw --san evil.example.com
-<span class="no">Error: x509: a root or intermediate certificate is not authorized to sign
-for this name: DNS name "evil.example.com" is not permitted by any constraint</span></code></pre>
-
-    <div class="callout">
-      <p>Each constraint only covers its own name type: a <code>DNS</code> constraint on its own leaves IP SANs unrestricted. Every leaf also carries <code>&lt;leaf&gt;.&lt;intermediate&gt;.&lt;domain&gt;</code> as a SAN, so choose a domain inside the constraint. The CA command warns you when it is not.</p>
-    </div>
-  </div>
-</section>
-
-<section>
-  <div class="wrap">
-    <h2>Sign a request made elsewhere</h2>
-    <p class="lede">When a service generates its own key, hand homepki the CSR instead. The private key never leaves the machine that made it.</p>
-
-<pre><code>openssl req -new -nodes -newkey rsa:2048 -keyout my-service.key -out my-service.csr \
-  -subj "/O=runlocal-dev/OU=bu1/CN=my-service.bu1.runlocal.dev" \
-  -addext "subjectAltName=DNS:my-service.bu1.runlocal.dev,DNS:my-service.local"
-
-homepki sign -d runlocal.dev -i bu1 --csr my-service.csr
-homepki sign -d runlocal.dev -i bu1 --csr my-client.csr --type client
-homepki sign -d runlocal.dev -i bu1 --csr my-service.csr --out ./my-service.crt</code></pre>
-
-    <p>Subject Alternative Names are copied from the request. Every other extension it asks for is ignored: basic constraints, key usage and extended key usage are set by homepki, so a request cannot ask to become a CA.</p>
-
-    <div class="callout">
-      <p>The intermediate signs only requests carrying its own organization and organizational unit — <code>O=</code> the root CA's literal name, <code>OU=</code> the intermediate name. A mismatch is rejected, and the error prints the exact <code>-subj</code> to use.</p>
-    </div>
-  </div>
-</section>
-
-<section class="alt">
-  <div class="wrap">
-    <h2>Revoke a certificate</h2>
-    <p class="lede"><code>revoke</code> adds a leaf's serial number to its intermediate's certificate revocation list and re-signs it. Servers that read the CRL then refuse the certificate.</p>
-
-<pre><code>homepki crl    -d runlocal.dev -i bu1                  <span class="c"># write empty CRLs before anything is revoked</span>
-homepki revoke -d runlocal.dev -i bu1 -c my-client --reason keyCompromise
-homepki revoke -d runlocal.dev -i bu1 --cert ./my-service.crt</code></pre>
-
-<pre><code>$ROOT/bu1/bu1-intermediate-ca.crl   <span class="c"># the intermediate's CRL</span>
-$ROOT/ca/runlocal-dev-root-ca.crl   <span class="c"># the root's CRL</span>
-$ROOT/bu1/bu1-crl-chain.crl         <span class="c"># both, for servers that check every tier</span></code></pre>
-
-    <p>nginx and OpenSSL with <code>-crl_check_all</code> need a CRL for every CA in the chain, so give them the chain file. <code>list</code> reports revoked leaves:</p>
-
-<pre class="wide"><code>  my-client.crt  2027-09-26  364        <span class="no">✗ INVALID: revoked on 2026-09-26 (keyCompromise)</span></code></pre>
-
-    <div class="callout">
-      <p>The CRL file is the only record of revocations. Each CRL is valid for 365 days by default; OpenSSL-based servers reject a CRL past its next update, so run <code>homepki crl</code> again before then, or pass <code>--validity</code>. Re-issuing a revoked name with <code>--force</code> gives it a new serial that is not revoked.</p>
-    </div>
-  </div>
-</section>
-
-<section>
-  <div class="wrap">
-    <h2>PKCS#12 for Java and Windows</h2>
-    <p class="lede"><code>--pkcs12</code> on <code>server-cert</code> or <code>client-cert</code> also writes <code>&lt;name&gt;.p12</code>, holding the key, the leaf and the CA chain.</p>
-
-<pre><code>homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway --pkcs12
-homepki client-cert -d runlocal.dev -i bu1 -c my-client --pkcs12 --pkcs12-password s3cret
-
-keytool -list -keystore $ROOT/bu1/server-tls/kong-gateway.p12 -storepass changeit</code></pre>
-
-    <p>The default password is <code>changeit</code>, the same as the JDK's keystores. The file uses the 3DES encoding, which Java, OpenSSL 3, macOS Keychain and Windows all import without extra options. Re-issuing a leaf without <code>--pkcs12</code> deletes the old bundle, since it holds the old key.</p>
-  </div>
-</section>
-
-<section class="alt">
-  <div class="wrap">
-    <h2>Agent Skill for AI coding tools</h2>
-    <p class="lede">homepki includes an <a href="https://code.claude.com/docs/en/skills">Agent Skill</a> compiled into the binary. Install it once so AI coding tools have the flags, the usage patterns, and the failure modes described below.</p>
-
-<pre><code>homepki skill install          <span class="c"># → ~/.claude/skills/homepki/SKILL.md</span>
-homepki skill path             <span class="c"># print the install path</span>
-homepki skill install --print  <span class="c"># emit it to stdout, pipe it anywhere</span></code></pre>
-
-    <p>The skill covers the usage patterns, the JSON output, how to remove a PKI, and the failure modes that <code>--help</code> does not show. Nothing is downloaded. Start a new agent session to load it.</p>
-  </div>
-</section>
-
-<section>
-  <div class="wrap">
-    <h2>Common questions</h2>
-
-    <dl class="faq">
-      <dt>Can I use this for production certificates?</dt>
-      <dd>No. Keys are unencrypted, there is no online CA, no ACME and no OCSP, and revocation is published only as CRL files. This is a local-development CA. Use ACME/Let's Encrypt or your organisation's PKI for anything public-facing.</dd>
-
-      <dt>Is it safe to re-run a generate command?</dt>
-      <dd>Yes. A generate command refuses to overwrite existing material: it exits non-zero, prints what is in the way, and changes nothing. <code>--force</code> replaces it deliberately. On a CA tier that is still destructive — every certificate below stops verifying, while the tier you replaced keeps showing <code>✓ OK</code>, so check the tier <em>below</em> it.</dd>
-
-      <dt>How do I re-issue a leaf under the same name?</dt>
-      <dd>Pass <code>--force</code>. It writes a new key and certificate over the old pair. The key is regenerated, so anything already serving the old pair has to be reloaded.</dd>
-
-      <dt>How is this different from mkcert?</dt>
-      <dd>Both install their root into the system trust store, Firefox/NSS and Java; homepki does it on macOS and Linux, mkcert on Windows too. The difference is the hierarchy: homepki creates intermediates, separate client certificates for mTLS, and a CA bundle to hand to a service. It also enforces name constraints when it issues, revokes certificates with CRLs, and signs requests generated elsewhere. mkcert issues leaves straight from its root.</dd>
-
-      <dt>How is this different from step?</dt>
-      <dd><code>step certificate create</code> can build the same tiers, but you choose the file layout and pass profiles and templates yourself. homepki fixes the layout per domain and intermediate, derives the subjects, and verifies every chain in <code>list</code>. step and step-ca also cover what homepki leaves out on purpose: an online CA with ACME, SSH certificates, and encrypted private keys.</dd>
-
-      <dt>Where does it store files, and how do I start over?</dt>
-      <dd>Everything lives under one directory: <code>--workdir</code>, then <code>$HOMEPKI_WORKDIR</code>, then <code>~/.homepki</code>. There is no delete command, so removing a PKI means <code>rm -rf</code> on that directory. Point <code>HOMEPKI_WORKDIR</code> at a temporary directory for a throwaway PKI.</dd>
-
-      <dt>Does it need OpenSSL?</dt>
-      <dd>No. It is a single Go binary: key generation, signing and chain verification use Go's <code>crypto/x509</code>. No command waits for a passphrase or a DN prompt. The only prompt is <code>sudo</code>, when <code>trust install</code> or <code>uninstall</code> changes the system store or a <code>cacerts</code> file you cannot write.</dd>
-    </dl>
-  </div>
-</section>
-
-<section id="install" class="alt">
-  <div class="wrap">
-    <h2>Install</h2>
-
-<pre><code>brew tap bcollard/homepki
-brew install --cask homepki</code></pre>
-
-    <p>Or download a binary for macOS or Linux, amd64 or arm64, from the <a href="https://github.com/bcollard/homepki/releases/latest">latest release</a>.</p>
-
-    <h3>First run</h3>
-<pre><code>export HOMEPKI_WORKDIR="$PWD/.pki"     <span class="c"># keep this PKI in the project directory</span>
-
-homepki root-ca         -d runlocal.dev
-homepki intermediate-ca -d runlocal.dev -n bu1
-homepki server-cert     -d runlocal.dev -i bu1 -s kong-gateway --san kong.local
-
-homepki server-cert list -d runlocal.dev -i bu1</code></pre>
-
-    <p class="note">Generate commands print each file they write. In scripts, rely on the exit code and check the result with <code>list -o json</code>.</p>
-  </div>
-</section>
-
-<footer>
-  <div class="wrap">
-    <p>
-      <a href="https://github.com/bcollard/homepki">Source</a> ·
-      <a href="https://github.com/bcollard/homepki/blob/main/SKILL.md">Agent Skill</a> ·
-      <a href="https://github.com/bcollard/homepki/releases/latest">Releases</a> ·
-      <a href="https://github.com/bcollard/homepki/issues">Issues</a>
-    </p>
-    <p>MIT licensed. Built by <a href="https://github.com/bcollard">Baptiste Collard</a>.</p>
-  </div>
-</footer>
-
+<script src="site.js"></script>
 </body>
 </html>

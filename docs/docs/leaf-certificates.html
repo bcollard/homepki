@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>try{var t=localStorage.getItem('homepki-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+
+<title>Server and client certificates – homepki docs</title>
+<meta name="description" content="Issue server and client TLS certificates with homepki: derived subjects, Subject Alternative Names, RSA, ECDSA or Ed25519 keys, validity, PKCS#12 bundles and re-issuing.">
+<link rel="canonical" href="https://bcollard.github.io/homepki/docs/leaf-certificates.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="homepki">
+<meta property="og:url" content="https://bcollard.github.io/homepki/docs/leaf-certificates.html">
+<meta property="og:title" content="Server and client certificates with homepki">
+<meta property="og:description" content="SANs, key types, validity, PKCS#12 and re-issuing for homepki leaf certificates.">
+<meta name="theme-color" content="#f6faf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1513" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<!-- nav --><nav class="nav">
+  <a class="brand" href="../" aria-label="homepki home">
+    <img src="../mark.svg" width="28" height="28" alt="">
+    <strong>homepki</strong>
+  </a>
+  <div class="nav-search">
+    <input type="search" id="docsSearch" placeholder="Search docs…" aria-label="Search documentation" autocomplete="off">
+    <kbd class="nav-search-kbd">⌘K</kbd>
+    <ul class="docs-search-results" id="docsSearchResults" hidden></ul>
+  </div>
+  <div class="nav-right">
+    <a class="nav-home" href="../">Home</a>
+    <a class="nav-docs" href="../docs/">Docs</a>
+    <a class="nav-github" href="https://github.com/bcollard/homepki">GitHub</a>
+    <a class="nav-version" id="navVersion" href="https://github.com/bcollard/homepki/releases/latest" title="Latest release">v0.8.1</a>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle colour theme"><span class="sun">☀</span><span class="moon">☾</span><span class="auto">◐</span></button>
+  </div>
+</nav><!-- /nav -->
+
+<div class="docs-shell">
+  <!-- sidebar --><details class="docs-sidebar" id="docsSidebar">
+    <summary>Documentation menu</summary>
+    <div class="docs-nav-inner">
+      <div class="docs-nav-group">
+        <h5>Introduction</h5>
+        <ul class="docs-nav">
+          <li><a href="./">Overview</a></li>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="comparison.html">vs. other tools</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Issuing certificates</h5>
+        <ul class="docs-nav">
+          <li><a href="hierarchy.html">Certificate hierarchy</a></li>
+          <li><a href="leaf-certificates.html" class="active" aria-current="page">Server and client certificates</a></li>
+          <li><a href="signing-csrs.html">Signing external CSRs</a></li>
+          <li><a href="listing.html">Listing and verification</a></li>
+          <li><a href="using-certificates.html">Using the certificates</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Security</h5>
+        <ul class="docs-nav">
+          <li><a href="name-constraints.html">Name constraints</a></li>
+          <li><a href="revocation.html">Revocation</a></li>
+          <li><a href="trust.html">Trusting the root CA</a></li>
+        </ul>
+      </div>
+      <div class="docs-nav-group">
+        <h5>Reference</h5>
+        <ul class="docs-nav">
+          <li><a href="cli-reference.html">CLI reference</a></li>
+          <li><a href="go-package.html">Go package</a></li>
+          <li><a href="agent-skill.html">Agent Skill</a></li>
+          <li><a href="changelog.html">Changelog</a></li>
+        </ul>
+      </div>
+    </div>
+  </details><!-- /sidebar -->
+
+  <main class="docs-main">
+    <article class="docs-prose">
+      <!-- breadcrumb --><p class="breadcrumb"><a href="../">Home</a> › <a href="./">Docs</a> › Server and client certificates</p><!-- /breadcrumb -->
+      <h1>Server and client certificates</h1>
+      <p class="lead">Issue TLS leaves under an intermediate CA: what goes in the subject and the SANs, which key and validity to use, and how to re-issue.</p>
+
+      <h2 id="server-and-client-leaves">Server and client leaves</h2>
+      <p><code>server-cert</code> and <code>client-cert</code> issue a key and a certificate under an intermediate CA. They differ in the extended key usage they set and the directory they write to.</p>
+<pre><code><span class="p">$</span> homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway
+<span class="p">$</span> homepki client-cert -d runlocal.dev -i bu1 -c my-client</code></pre>
+      <table class="docs-table">
+        <thead><tr><th>Command</th><th>Extended key usage</th><th>Key usage</th><th>Written to</th></tr></thead>
+        <tbody>
+          <tr><td><code>server-cert</code></td><td><code>serverAuth</code></td><td><code>digitalSignature</code>, plus <code>keyEncipherment</code> for an RSA key</td><td><code>&lt;intermediate&gt;/server-tls/&lt;name&gt;.crt</code>, <code>.key</code></td></tr>
+          <tr><td><code>client-cert</code></td><td><code>clientAuth</code></td><td><code>digitalSignature</code></td><td><code>&lt;intermediate&gt;/client-tls/&lt;name&gt;.crt</code>, <code>.key</code></td></tr>
+        </tbody>
+      </table>
+      <p>The intermediate must exist. Every new certificate is verified against its chain before anything is written, so a leaf that would not verify, for example one outside a CA's <a href="name-constraints.html">name constraints</a>, is refused and leaves nothing on disk.</p>
+
+      <h3 id="derived-subject">Derived subject</h3>
+      <p>The subject is not configurable. The organization is the root CA's literal name (the domain with dots replaced by dashes), the organizational unit is the intermediate name, and the common name is <code>&lt;leaf&gt;.&lt;intermediate&gt;.&lt;domain&gt;</code>:</p>
+<pre><code>O=runlocal-dev, OU=bu1, CN=kong-gateway.bu1.runlocal.dev</code></pre>
+      <p>The common name is always the first DNS Subject Alternative Name. Most TLS clients ignore the common name and match SANs only, so if a service must answer on a name that does not fit this shape, add it with <code>--san</code> rather than changing the leaf name.</p>
+
+      <h2 id="subject-alternative-names">Subject Alternative Names</h2>
+      <p>Both commands take a repeatable <code>--san</code>. The values are appended after the common name.</p>
+<pre><code><span class="p">$</span> homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway \
+    --san kong.local \
+    --san 192.168.1.10 \
+    --san 'DNS:*.kong.local' \
+    --san IP:::1</code></pre>
+<pre><code><span class="p">$</span> openssl x509 -noout -ext subjectAltName -in kong-gateway.crt
+X509v3 Subject Alternative Name:
+    DNS:kong-gateway.bu1.runlocal.dev, DNS:kong.local, DNS:*.kong.local,
+    IP Address:192.168.1.10, IP Address:0:0:0:0:0:0:0:1</code></pre>
+      <table class="docs-table">
+        <thead><tr><th>Value</th><th>Becomes</th></tr></thead>
+        <tbody>
+          <tr><td>a bare value that parses as an IP address</td><td>an <code>IP</code> SAN</td></tr>
+          <tr><td>any other bare value</td><td>a <code>DNS</code> SAN</td></tr>
+          <tr><td><code>DNS:</code>, <code>IP:</code>, <code>email:</code>, <code>URI:</code> prefix (any case)</td><td>that type, whatever the value looks like</td></tr>
+        </tbody>
+      </table>
+      <p>An invalid address after <code>IP:</code> is rejected instead of being treated as a hostname. Duplicates are dropped.</p>
+      <div class="callout warn"><span class="ico">⚠</span><p>Single-quote any SAN that contains <code>*</code>. An unquoted <code>--san DNS:*.kong.local</code> is expanded by the shell before homepki receives it, and zsh fails the whole command with <code>no matches found</code>.</p></div>
+
+      <h3 id="client-sans">SANs on client certificates</h3>
+      <p><code>client-cert</code> takes <code>--san</code> the same way. Use a <code>URI:</code> SAN to give a workload a SPIFFE ID:</p>
+<pre><code><span class="p">$</span> homepki client-cert -d runlocal.dev -i bu1 -c my-client \
+    --san URI:spiffe://runlocal.dev/ns/default/sa/my-client</code></pre>
+
+      <h2 id="key-types">Key types</h2>
+      <p>Every generate command takes <code>--key-type</code>. Tiers are independent: an ECDSA leaf under an RSA intermediate is fine. An unknown value is rejected before anything is written.</p>
+      <table class="docs-table">
+        <thead><tr><th><code>--key-type</code></th><th>Key</th><th>Signature digest when this key signs</th></tr></thead>
+        <tbody>
+          <tr><td><code>rsa</code> (default)</td><td>RSA 2048-bit</td><td>SHA-256</td></tr>
+          <tr><td><code>ecdsa</code>, <code>ecdsa-p256</code></td><td>ECDSA P-256</td><td>SHA-256</td></tr>
+          <tr><td><code>ecdsa-p384</code></td><td>ECDSA P-384</td><td>SHA-384</td></tr>
+          <tr><td><code>ecdsa-p521</code></td><td>ECDSA P-521</td><td>SHA-512</td></tr>
+          <tr><td><code>ed25519</code></td><td>Ed25519</td><td>none (Ed25519 signs the message directly)</td></tr>
+        </tbody>
+      </table>
+      <p>The digest follows the <strong>issuing</strong> CA's key, not the key being certified. A P-384 leaf under an RSA intermediate is signed with SHA-256.</p>
+<pre><code><span class="p">$</span> homepki intermediate-ca -d runlocal.dev -n bu2 --key-type ecdsa
+<span class="p">$</span> homepki server-cert     -d runlocal.dev -i bu2 -s gw --key-type ecdsa-p384</code></pre>
+      <div class="callout warn"><span class="ico">⚠</span><p>Browsers do not accept Ed25519 certificates. Use <code>ed25519</code> for service-to-service TLS between Go or OpenSSL 1.1.1+ peers, and RSA or ECDSA for anything a browser opens.</p></div>
+
+      <h2 id="validity">Validity</h2>
+      <p><code>--validity</code> sets how long a certificate stays valid, as a number of days (<code>90d</code>) or a Go duration (<code>24h</code>, <code>30m</code>). There is no year suffix: write <code>3650d</code>.</p>
+      <table class="docs-table">
+        <thead><tr><th>Command</th><th>Default</th></tr></thead>
+        <tbody>
+          <tr><td><code>root-ca</code>, <code>intermediate-ca</code></td><td>2190 days (about 6 years)</td></tr>
+          <tr><td><code>server-cert</code>, <code>client-cert</code>, <code>sign</code></td><td>365 days</td></tr>
+        </tbody>
+      </table>
+<pre><code><span class="p">$</span> homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway --validity 24h   <span class="c"># to test rotation</span></code></pre>
+      <p>A certificate never outlives its issuer. A longer request is capped at the issuer's expiry and the command prints a note:</p>
+<pre><code><span class="p">$</span> homepki server-cert -d runlocal.dev -i bu1 -s long --validity 5000d
+Generating server certificate long under runlocal.dev/bu1
+Wrote ~/.homepki/runlocal-dev/bu1/server-tls/long.key
+Wrote ~/.homepki/runlocal-dev/bu1/server-tls/long.crt
+Note: validity capped at the issuer's expiry, 2032-09-24.
+Server Certificate generated successfully.</code></pre>
+      <p><code>NotBefore</code> is always set 5 minutes in the past, so a new certificate is already valid in a container or VM whose clock runs slightly behind. It also means an already-expired certificate cannot be issued.</p>
+
+      <h2 id="pkcs12">PKCS#12 bundles</h2>
+      <p><code>--pkcs12</code> also writes <code>&lt;name&gt;.p12</code> next to the <code>.crt</code> and <code>.key</code>. It holds the private key, the leaf and the CA chain (intermediate, then root).</p>
+<pre><code><span class="p">$</span> homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway --pkcs12
+Generating server certificate kong-gateway under runlocal.dev/bu1
+Wrote ~/.homepki/runlocal-dev/bu1/server-tls/kong-gateway.key
+Wrote ~/.homepki/runlocal-dev/bu1/server-tls/kong-gateway.crt
+Wrote ~/.homepki/runlocal-dev/bu1/server-tls/kong-gateway.p12 (key, certificate and CA chain; password "changeit")
+Server Certificate generated successfully.
+
+<span class="p">$</span> keytool -list -keystore kong-gateway.p12 -storepass changeit</code></pre>
+      <ul>
+        <li>The password is <code>changeit</code>, the default of mkcert and of the JDK keystores. <code>--pkcs12-password</code> sets another.</li>
+        <li>The file uses the 3DES/SHA-1 PKCS#12 encoding, which Java, macOS Keychain, Windows and OpenSSL 3 import without extra options such as <code>-legacy</code>.</li>
+        <li>The file has mode <code>0600</code>, like the <code>.key</code>.</li>
+      </ul>
+
+      <h2 id="re-issuing">Re-issuing a leaf</h2>
+      <p>A generate command refuses to overwrite existing material. It exits 1, lists what is in the way, and changes nothing:</p>
+<pre><code><span class="p">$</span> homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway
+<span class="no">Error: a server certificate named "kong-gateway" already exists under runlocal.dev/bu1:</span>
+  ~/.homepki/runlocal-dev/bu1/server-tls/kong-gateway.crt
+  ~/.homepki/runlocal-dev/bu1/server-tls/kong-gateway.key
+  ~/.homepki/runlocal-dev/bu1/server-tls/kong-gateway.p12
+
+Re-issuing overwrites its private key, so anything already serving that pair breaks. Pass --force to replace it, or issue under another name</code></pre>
+      <p><code>--force</code> writes a new key and certificate over the old pair. There is no CA database, so nothing else needs cleaning up. The key is regenerated, so reload anything that serves or presents the old pair.</p>
+<pre><code><span class="p">$</span> homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway \
+    --san kong.local --san 10.0.0.5 --force</code></pre>
+      <p>Re-issuing with <code>--force</code> but without <code>--pkcs12</code> deletes the old <code>.p12</code>, since it holds the replaced key. A re-issued certificate gets a new serial number, so it is not affected by an earlier <a href="revocation.html">revocation</a> of the same name.</p>
+      <div class="callout"><span class="ico">ℹ</span><p>In scripts, prefer a new leaf name or a fresh <code>HOMEPKI_WORKDIR</code> over <code>--force</code>. <code>--force</code> on a CA tier orphans every certificate below it; see <a href="listing.html#after-force">Checking after --force</a>.</p></div>
+
+      <!-- pager --><div class="doc-pager">
+        <a href="hierarchy.html"><span class="dir">← Previous</span><span class="ttl">Certificate hierarchy</span></a>
+        <a class="next" href="signing-csrs.html"><span class="dir">Next →</span><span class="ttl">Signing external CSRs</span></a>
+      </div><!-- /pager -->
+    </article>
+  </main>
+</div>
+
+<!-- footer --><footer class="footer">
+  <div class="container">
+    <p>MIT licensed · <a href="https://github.com/bcollard/homepki">Source</a> · <a href="https://github.com/bcollard/homepki/releases">Releases</a> · <a href="https://github.com/bcollard/homepki/issues">Issues</a> · Built by <a href="https://github.com/bcollard">Baptiste Collard</a></p>
+  </div>
+</footer><!-- /footer -->
+
+<script src="search-index.js"></script>
+<script src="../site.js"></script>
+</body>
+</html>

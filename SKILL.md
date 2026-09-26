@@ -17,7 +17,7 @@ metadata:
 
 It can also add the root CA to the system, Firefox/NSS and Java trust stores on macOS and Linux (`homepki trust install`), sign a CSR generated elsewhere (`homepki sign`), bundle a leaf as PKCS#12 (`--pkcs12`), and revoke leaves through CRLs (`homepki revoke`).
 
-Project: https://github.com/bcollard/homepki
+Project: https://github.com/bcollard/homepki · Docs: https://bcollard.github.io/homepki/docs/
 
 ## Install (idempotent)
 
@@ -211,7 +211,7 @@ Files written (PEM):
 | --- | --- | --- |
 | `<int>/<int>-intermediate-ca.crl` | the intermediate's CRL | clients that check the leaf only |
 | `ca/<root>-root-ca.crl` | the root's CRL (always empty) | |
-| `<int>/<int>-crl-chain.crl` | both, intermediate first | nginx `ssl_crl`, Kong, `openssl verify -crl_check_all` — anything that checks every tier needs a CRL for each CA |
+| `<int>/<int>-crl-chain.crl` | both, intermediate first | nginx `ssl_crl`, `openssl verify -crl_check_all` — anything that checks every tier needs a CRL for each CA |
 
 - The CRL file is the only record of revocations: `revoke` reads it and appends. Deleting it un-revokes everything.
 - `--reason` takes an RFC 5280 name (`keyCompromise`, `superseded`, `cessationOfOperation`, ...); default `unspecified`.

@@ -12,6 +12,14 @@ import (
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
 )
 
+func TestNoCapNoteForDefaults(t *testing.T) {
+	e := newPKIEnv(t)
+	e.mustRun("root-ca", "-d", "d.test")
+	if out := e.mustRun("intermediate-ca", "-d", "d.test", "-n", "bu1"); strings.Contains(out, "capped") {
+		t.Errorf("default intermediate under a fresh root printed a cap note:\n%s", out)
+	}
+}
+
 func TestValidityFlag(t *testing.T) {
 	e := newPKIEnv(t)
 	e.mustRun("root-ca", "-d", "v.test", "--validity", "30d")
