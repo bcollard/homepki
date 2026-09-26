@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <title>homepki – three-tier PKI for local development</title>
-<meta name="description" content="A command line tool that creates a root CA, intermediate CAs, and server or client TLS certificates on your workstation. Verifies chains of trust, signs external requests, and installs the root into the macOS trust store.">
+<meta name="description" content="A command line tool that creates a root CA, intermediate CAs, and server or client TLS certificates on your workstation. Verifies chains of trust, supports name constraints, signs external requests, and installs the root into the macOS trust store.">
 <link rel="canonical" href="https://bcollard.github.io/homepki/">
 <link rel="icon" href="mark.svg" type="image/svg+xml">
 
@@ -437,6 +437,32 @@ Root CA trust (macOS system keychain):
 
 <section class="alt">
   <div class="wrap">
+    <h2>Limit what a CA can issue</h2>
+    <p class="lede">Before you trust a root system-wide, restrict it to your own names. A root limited to <code>.klimax.internal</code> cannot vouch for any other site, even if its key leaks.</p>
+
+<pre><code>homepki root-ca -d klimax.internal \
+  --name-constraint "permitted;DNS:.klimax.internal"
+
+homepki intermediate-ca -d klimax.internal -n bu1 \
+  --name-constraint "permitted;DNS:.bu1.klimax.internal" \
+  --name-constraint "IP:10.0.0.0/8"</code></pre>
+
+    <p><code>--name-constraint</code> takes OpenSSL syntax, <code>permitted;</code> or <code>excluded;</code> then <code>DNS</code>, <code>IP</code>, <code>email</code>, <code>URI</code> or <code>dirName</code>, and can be repeated. <code>permitted;</code> can be left out, and IP ranges can be written as CIDR. <code>.klimax.internal</code> matches subdomains only, while <code>klimax.internal</code> also matches the domain itself. Go, macOS, Chrome and Firefox all enforce constraints on a root.</p>
+
+    <p>OpenSSL signs a leaf even when it breaks a constraint. homepki checks every new leaf against its chain, and if a name is not allowed it deletes the certificate and its database row, then exits non-zero:</p>
+
+<pre class="wide"><code>$ homepki server-cert -d klimax.internal -i bu1 -s gw --san evil.example.com
+<span class="no">Error: x509: a root or intermediate certificate is not authorized to sign
+for this name: DNS name "evil.example.com" is not permitted by any constraint</span></code></pre>
+
+    <div class="callout">
+      <p>Each constraint only covers its own name type: a <code>DNS</code> constraint on its own leaves IP SANs unrestricted. Every leaf also carries <code>&lt;leaf&gt;.&lt;intermediate&gt;.&lt;domain&gt;</code> as a SAN, so choose a domain inside the constraint. The CA command warns you when it is not.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
     <h2>Sign a request made elsewhere</h2>
     <p class="lede">When a service generates its own key, hand homepki the CSR instead. The private key never leaves the machine that made it.</p>
 
@@ -456,7 +482,7 @@ homepki sign -d runlocal.dev -i bu1 --csr my-service.csr --out ./my-service.crt<
   </div>
 </section>
 
-<section>
+<section class="alt">
   <div class="wrap">
     <h2>Agent Skill for AI coding tools</h2>
     <p class="lede">homepki includes an <a href="https://code.claude.com/docs/en/skills">Agent Skill</a> compiled into the binary. Install it once so AI coding tools have the flags, the usage patterns, and the failure modes described below.</p>
@@ -469,7 +495,7 @@ homepki skill install --print  <span class="c"># emit it to stdout, pipe it anyw
   </div>
 </section>
 
-<section class="alt">
+<section>
   <div class="wrap">
     <h2>Common questions</h2>
 
@@ -503,7 +529,7 @@ export PATH="$(brew --prefix openssl@3)/bin:$PATH"</code></pre>
   </div>
 </section>
 
-<section id="install">
+<section id="install" class="alt">
   <div class="wrap">
     <h2>Install</h2>
 
