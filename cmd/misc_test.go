@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -199,19 +198,20 @@ func TestTrustHelpers(t *testing.T) {
 		t.Errorf("firstLine = %q", got)
 	}
 
-	e := newPKIEnv(t)
-	if runtime.GOOS != "darwin" {
-		if _, err := e.run("trust", "status"); err == nil || !strings.Contains(err.Error(), "macOS only") {
-			t.Errorf("trust on %s: err = %v", runtime.GOOS, err)
-		}
-		return
+	if got := lastLine("one\ntwo\n"); got != "two" {
+		t.Errorf("lastLine = %q", got)
 	}
-	// On macOS, install refuses before calling sudo when there is no root CA.
+
+	e := newPKIEnv(t)
+	// install refuses before calling sudo when there is no root CA.
 	if _, err := e.run("trust", "install", "-d", "none.test"); err == nil || !strings.Contains(err.Error(), "no Root CA certificate") {
 		t.Errorf("trust install without a root: err = %v", err)
 	}
 	if out := e.mustRun("trust", "status"); !strings.Contains(out, "No Root CAs found.") {
 		t.Errorf("trust status on an empty workdir: %q", out)
+	}
+	if _, err := e.run("trust", "status", "--store", "keychain"); err == nil || !strings.Contains(err.Error(), "unknown trust store") {
+		t.Errorf("trust status --store keychain: err = %v", err)
 	}
 }
 

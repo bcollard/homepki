@@ -3,6 +3,7 @@ package pki
 import (
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
@@ -29,7 +30,7 @@ var ecCurves = map[string]elliptic.Curve{
 // so a command can fail before it writes anything.
 func ValidateKeyType(keyType string) error {
 	kt := strings.ToLower(strings.TrimSpace(keyType))
-	if kt == "" || kt == "rsa" {
+	if kt == "" || kt == "rsa" || kt == "ed25519" {
 		return nil
 	}
 	if _, ok := ecCurves[kt]; !ok {
@@ -45,15 +46,19 @@ func GenerateKey(keyType string) (crypto.Signer, error) {
 		return nil, err
 	}
 	kt := strings.ToLower(strings.TrimSpace(keyType))
-	if kt == "" || kt == "rsa" {
+	switch kt {
+	case "", "rsa":
 		return rsa.GenerateKey(rand.Reader, rsaKeyBits)
+	case "ed25519":
+		_, key, err := ed25519.GenerateKey(rand.Reader)
+		return key, err
 	}
 	return ecdsa.GenerateKey(ecCurves[kt], rand.Reader)
 }
 
 // KeyTypes lists the accepted --key-type values, sorted.
 func KeyTypes() []string {
-	types := []string{"rsa"}
+	types := []string{"rsa", "ed25519"}
 	for k := range ecCurves {
 		types = append(types, k)
 	}

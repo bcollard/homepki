@@ -88,14 +88,25 @@ func VerifyRootCert(rootCACertPath string) error {
 	if err != nil {
 		return fmt.Errorf("root CA cert: %w", err)
 	}
+	return VerifyRoot(cert)
+}
+
+// VerifyRoot verifies that root is a CA certificate signed by its own key.
+func VerifyRoot(root *x509.Certificate) error {
+	if root == nil {
+		return fmt.Errorf("no root CA certificate")
+	}
+	if !root.IsCA {
+		return fmt.Errorf("%s is not a CA certificate", root.Subject.CommonName)
+	}
 	// Verify alone accepts any certificate found in its own root pool, so the
 	// self-signature has to be checked explicitly.
-	if err := cert.CheckSignatureFrom(cert); err != nil {
+	if err := root.CheckSignatureFrom(root); err != nil {
 		return fmt.Errorf("not self-signed: %w", err)
 	}
 	roots := x509.NewCertPool()
-	roots.AddCert(cert)
-	_, err = cert.Verify(x509.VerifyOptions{
+	roots.AddCert(root)
+	_, err := root.Verify(x509.VerifyOptions{
 		Roots:     roots,
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 	})
@@ -113,9 +124,25 @@ func VerifyIntermediateCert(intermediateCertPath, rootCACertPath string) error {
 	if err != nil {
 		return fmt.Errorf("root CA cert: %w", err)
 	}
+	return VerifyIntermediate(intermediateCert, rootCACert)
+}
+
+// VerifyIntermediate verifies that intermediate is a CA certificate that root
+// signed, and that it is valid now. Name constraints on the root apply to the
+// intermediate's own names.
+func VerifyIntermediate(intermediate, root *x509.Certificate) error {
+	if intermediate == nil {
+		return fmt.Errorf("no intermediate CA certificate")
+	}
+	if root == nil {
+		return fmt.Errorf("no root CA certificate")
+	}
+	if !intermediate.IsCA {
+		return fmt.Errorf("%s is not a CA certificate", intermediate.Subject.CommonName)
+	}
 	roots := x509.NewCertPool()
-	roots.AddCert(rootCACert)
-	_, err = intermediateCert.Verify(x509.VerifyOptions{
+	roots.AddCert(root)
+	_, err := intermediate.Verify(x509.VerifyOptions{
 		Roots:     roots,
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 	})
@@ -144,7 +171,16 @@ func VerifyLeafCert(leafCertPath, intermediateCertPath, rootCACertPath string, k
 
 // VerifyChain verifies a leaf against its intermediate and root, including the
 // name constraints any of them carry.
+// A nil certificate is reported as an error.
 func VerifyChain(leaf, intermediate, root *x509.Certificate, keyUsages []x509.ExtKeyUsage) error {
+	switch {
+	case leaf == nil:
+		return fmt.Errorf("no leaf certificate")
+	case intermediate == nil:
+		return fmt.Errorf("no intermediate CA certificate")
+	case root == nil:
+		return fmt.Errorf("no root CA certificate")
+	}
 	roots := x509.NewCertPool()
 	roots.AddCert(root)
 	intermediates := x509.NewCertPool()

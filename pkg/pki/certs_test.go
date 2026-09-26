@@ -21,7 +21,7 @@ func newTestChain(t *testing.T, keyType string, rootNC, intermediateNC NameConst
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := SelfSignRoot(rootKey, pkix.Name{Organization: []string{"test-local"}, CommonName: "test.local"}, rootNC)
+	root, err := SelfSignRoot(rootKey, pkix.Name{Organization: []string{"test-local"}, CommonName: "test.local"}, rootNC, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func newTestChain(t *testing.T, keyType string, rootNC, intermediateNC NameConst
 	}
 	intermediate, err := SignIntermediate(intermediateKey.Public(),
 		pkix.Name{Organization: []string{"test-local"}, OrganizationalUnit: []string{"bu1"}, CommonName: "bu1.test.local"},
-		intermediateNC, root, rootKey)
+		intermediateNC, 0, root, rootKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func (c testChain) leaf(t *testing.T, keyType string, kind LeafKind, sans ...str
 	}
 	leaf, err := SignLeaf(key.Public(),
 		pkix.Name{Organization: []string{"test-local"}, OrganizationalUnit: []string{"bu1"}, CommonName: sans[0]},
-		parsed, kind, c.intermediate, c.intermediateKey)
+		parsed, kind, 0, c.intermediate, c.intermediateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,10 +197,10 @@ func TestSigningWithMismatchedIssuerKeyFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The intermediate's certificate with the root's key: crypto/x509 refuses.
-	if _, err := SignLeaf(key.Public(), pkix.Name{CommonName: "x"}, SANs{DNS: []string{"x"}}, ServerLeaf, c.intermediate, c.rootKey); err == nil {
+	if _, err := SignLeaf(key.Public(), pkix.Name{CommonName: "x"}, SANs{DNS: []string{"x"}}, ServerLeaf, 0, c.intermediate, c.rootKey); err == nil {
 		t.Error("SignLeaf with a key that does not match the issuer: expected an error")
 	}
-	if _, err := SignIntermediate(key.Public(), pkix.Name{CommonName: "x"}, NameConstraints{}, c.root, c.intermediateKey); err == nil {
+	if _, err := SignIntermediate(key.Public(), pkix.Name{CommonName: "x"}, NameConstraints{}, 0, c.root, c.intermediateKey); err == nil {
 		t.Error("SignIntermediate with a key that does not match the issuer: expected an error")
 	}
 }

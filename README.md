@@ -26,7 +26,7 @@ homepki server-cert --domain runlocal.dev --intermediate bu1 --server kong-gatew
 # Create client certificate
 homepki client-cert --domain runlocal.dev --intermediate bu1 --client my-client
 
-# Trust the root CA system-wide (macOS)
+# Trust the root CA in the system, Firefox and Java trust stores (macOS, Linux)
 homepki trust install --domain runlocal.dev
 ```
 
@@ -87,7 +87,8 @@ go build -o homepki
 │   ├── server_cert.go              # server-cert command (generate + list)
 │   ├── client_cert.go              # client-cert command (generate + list)
 │   ├── sign.go                     # sign command (external CSRs)
-│   ├── trust.go                    # trust install/uninstall/status (macOS)
+│   ├── trust.go                    # trust install/uninstall/status (system, NSS, Java)
+│   ├── revoke.go                   # revoke + crl commands
 │   ├── leaf.go                     # shared server/client leaf issuance
 │   ├── paths.go                    # shared flags, CA file locations, helpers
 │   └── skill.go                    # skill install + path
@@ -98,7 +99,9 @@ go build -o homepki
         ├── keys.go                 # --key-type → key generation, PEM key I/O
         ├── constraints.go          # --name-constraint parsing
         ├── csr.go                  # CSR loading and subject policy checks
-        └── trust.go                # macOS trust store commands
+        ├── crl.go                  # CRL signing, loading, revocation reasons
+        ├── pkcs12.go               # PKCS#12 bundles
+        └── trust.go                # trust store detection and commands
 ```
 
 ## Usage Guide
@@ -181,31 +184,63 @@ homepki sign --domain runlocal.dev --intermediate bu1 --csr my-service.csr \
 
 The request's subject must carry the root CA's organization (`O=`, dots replaced by dashes) and the intermediate's organizational unit (`OU=`). Mismatches are rejected with the exact `-subj` to use printed in the error. Subject Alternative Names are copied from the request; every other requested extension is ignored, so a request cannot ask to be a CA.
 
-### Trusting the Root CA (macOS)
+### Trusting the Root CA
 
-Add the root CA to the macOS system keychain so Safari, Chrome, curl and anything else reading the system trust store accept certificates issued under it:
+Add the root CA to this machine's trust stores so browsers, curl and JVMs accept certificates issued under it:
 
 ```bash
-homepki trust install --domain runlocal.dev     # writes to the System keychain (sudo)
-homepki trust status                            # every root CA in the workdir
+homepki trust install --domain runlocal.dev                   # every store available on this host
+homepki trust install --domain runlocal.dev --store nss,java  # skip the system store (no sudo)
+homepki trust status                                          # every root CA in the workdir
 homepki trust status --domain runlocal.dev -o json
-homepki trust uninstall --domain runlocal.dev   # drop the trust setting (sudo)
+homepki trust uninstall --domain runlocal.dev
 ```
 
-`install` and `uninstall` run `security` under `sudo` and may prompt for your password. `status` needs no privileges.
+| `--store` | Covers | Needs |
+|-----------|--------|-------|
+| `system` | macOS System keychain; Linux anchors on Debian/Ubuntu/Alpine, Fedora/RHEL, Arch, openSUSE | sudo |
+| `nss` | Firefox profiles, and Chrome/Chromium's `~/.pki/nssdb` on Linux | `certutil` (`brew install nss`, `apt install libnss3-tools`) |
+| `java` | `$JAVA_HOME` cacerts | `keytool`; sudo only if cacerts is not writable |
 
-This is macOS-only, and it covers the system keychain alone — Firefox and Java keep their own trust stores. Servers must still present the intermediate chain file, or clients cannot build the path from the leaf to the trusted root.
+Without `--store`, homepki uses the system store plus every NSS database and JDK it finds. `status` needs no privileges. Servers must still present the intermediate chain file, or clients cannot build the path from the leaf to the trusted root.
 
 ### Key Types
 
-Every generate command takes `--key-type`: `rsa` (2048-bit, the default), `ecdsa` / `ecdsa-p256`, `ecdsa-p384`, or `ecdsa-p521`. Tiers are independent, so an ECDSA leaf under an RSA intermediate is fine.
+Every generate command takes `--key-type`: `rsa` (2048-bit, the default), `ecdsa` / `ecdsa-p256`, `ecdsa-p384`, `ecdsa-p521`, or `ed25519`. Tiers are independent, so an ECDSA leaf under an RSA intermediate is fine.
 
 ```bash
 homepki intermediate-ca --domain runlocal.dev --name bu1 --key-type ecdsa
 homepki server-cert --domain runlocal.dev --intermediate bu1 --server gw --key-type ecdsa-p384
 ```
 
-The signature digest follows the issuing CA's key: SHA-256 for RSA and P-256, SHA-384 for P-384, SHA-512 for P-521.
+The signature digest follows the issuing CA's key: SHA-256 for RSA and P-256, SHA-384 for P-384, SHA-512 for P-521. Browsers reject Ed25519 certificates; use `ed25519` for service-to-service TLS only.
+
+### Validity
+
+Every command that signs takes `--validity`, in days (`90d`) or as a Go duration (`24h`). Defaults are 2190 days for CAs and 365 days for leaves. A certificate is never valid past its issuer: a longer request is capped, with a note.
+
+```bash
+homepki server-cert --domain runlocal.dev --intermediate bu1 --server gw --validity 24h
+```
+
+### PKCS#12
+
+`--pkcs12` on `server-cert` and `client-cert` also writes `<name>.p12` with the key, certificate and CA chain. The password is `changeit` unless `--pkcs12-password` sets another. The encoding is readable by Java, macOS Keychain, Windows and OpenSSL 3.
+
+```bash
+homepki client-cert --domain runlocal.dev --intermediate bu1 --client my-client --pkcs12
+```
+
+### Revocation
+
+`revoke` adds a leaf to its intermediate's CRL; `crl` writes or refreshes the CRLs without revoking anything.
+
+```bash
+homepki crl --domain runlocal.dev --intermediate bu1
+homepki revoke --domain runlocal.dev --intermediate bu1 --client my-client --reason keyCompromise
+```
+
+This writes `bu1-intermediate-ca.crl`, `ca/<root>-root-ca.crl`, and `bu1-crl-chain.crl` (both CRLs, for servers such as nginx that check every tier). CRLs are valid for 365 days by default (`--validity`). `client-cert list` and `server-cert list` report revoked leaves as invalid.
 
 ### Name Constraints
 
@@ -264,11 +299,11 @@ Example JSON output:
 
 ## Security Features
 
-- **2048-bit RSA keys by default**, or ECDSA P-256/P-384/P-521 via `--key-type`
+- **2048-bit RSA keys by default**, or ECDSA P-256/P-384/P-521 or Ed25519 via `--key-type`
 - **Private keys** written as PKCS#8 PEM, mode 600, in 700 `private/` directories
 - **Random 128-bit serial numbers**
 - **Name constraints** on either CA tier, enforced before a leaf is written
-- **Chain verification** on every issue and every `list` command
+- **Chain verification** on every issue and every `list` command, including revocation for leaves
 
 ## File Organization
 
@@ -277,6 +312,7 @@ Example JSON output:
 {domain-name}/
 ├── ca/
 │   ├── {domain-name}-root-ca.crt     # Root certificate
+│   ├── {domain-name}-root-ca.crl     # Root CRL (after revoke / crl)
 │   └── private/                      # Protected private keys
 │       └── {domain-name}-root-ca.key # Root private key
 ```
@@ -287,6 +323,8 @@ Example JSON output:
 └── {organization}/
     ├── {org}-intermediate-ca.crt     # Intermediate certificate
     ├── {org}-intermediate-ca-chain.crt # Certificate chain
+    ├── {org}-intermediate-ca.crl     # Intermediate CRL (after revoke / crl)
+    ├── {org}-crl-chain.crl           # Intermediate + root CRLs
     ├── server-tls/                   # Server certificates
     ├── client-tls/                   # Client certificates
     └── private/                      # Protected private keys
@@ -295,10 +333,10 @@ Example JSON output:
 
 ## Defaults
 
-- **Key**: 2048-bit RSA (`--key-type ecdsa` for P-256, `ecdsa-p384`, `ecdsa-p521`)
+- **Key**: 2048-bit RSA (`--key-type ecdsa` for P-256, `ecdsa-p384`, `ecdsa-p521`, `ed25519`)
 - **Digest**: follows the issuer's key — SHA-256 (RSA, P-256), SHA-384 (P-384), SHA-512 (P-521)
 - **Serial numbers**: random 128-bit
-- **Validity**: 365 days for leaf certs, 2190 days (~6 years) for CAs
+- **Validity**: 365 days for leaf certs, 2190 days (~6 years) for CAs, 365 days for CRLs (`--validity` overrides)
 - **Extensions**: Proper X.509 extensions for CA and end-entity certificates
 
 ## Best Practices

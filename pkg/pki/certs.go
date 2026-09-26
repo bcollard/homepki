@@ -13,14 +13,48 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 )
 
-// Validity periods, in days.
+// Default validity periods, in days.
 const (
 	CAValidityDays   = 2190
 	LeafValidityDays = 365
+	CRLValidityDays  = 365
 )
+
+// ParseValidity reads a --validity value: a number of days with a d suffix
+// (90d) or a Go duration (24h, 90m). An empty value returns def.
+func ParseValidity(s string, def time.Duration) (time.Duration, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return def, nil
+	}
+	var d time.Duration
+	if days, ok := strings.CutSuffix(s, "d"); ok {
+		n, err := strconv.Atoi(days)
+		if err != nil {
+			return 0, fmt.Errorf("invalid validity %q: want a number of days (90d) or a duration (24h)", s)
+		}
+		d = time.Duration(n) * 24 * time.Hour
+	} else {
+		var err error
+		if d, err = time.ParseDuration(s); err != nil {
+			return 0, fmt.Errorf("invalid validity %q: want a number of days (90d) or a duration (24h)", s)
+		}
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("invalid validity %q: must be positive", s)
+	}
+	return d, nil
+}
+
+// Days converts a number of days to a duration.
+func Days(n int) time.Duration {
+	return time.Duration(n) * 24 * time.Hour
+}
 
 // backdate moves NotBefore into the past so a certificate is already valid on
 // a machine whose clock runs a little behind — a container or a VM.
@@ -44,8 +78,8 @@ func (k LeafKind) ExtKeyUsage() x509.ExtKeyUsage {
 
 // SelfSignRoot issues a self-signed root CA certificate. It may sign
 // intermediate CAs only (pathlen 1).
-func SelfSignRoot(key crypto.Signer, subject pkix.Name, nc NameConstraints) (*x509.Certificate, error) {
-	tmpl, err := caTemplate(subject, 1, nc)
+func SelfSignRoot(key crypto.Signer, subject pkix.Name, nc NameConstraints, validity time.Duration) (*x509.Certificate, error) {
+	tmpl, err := caTemplate(subject, 1, nc, validity)
 	if err != nil {
 		return nil, err
 	}
@@ -54,8 +88,8 @@ func SelfSignRoot(key crypto.Signer, subject pkix.Name, nc NameConstraints) (*x5
 
 // SignIntermediate issues an intermediate CA certificate that may sign leaves
 // only (pathlen 0).
-func SignIntermediate(pub crypto.PublicKey, subject pkix.Name, nc NameConstraints, issuer *x509.Certificate, issuerKey crypto.Signer) (*x509.Certificate, error) {
-	tmpl, err := caTemplate(subject, 0, nc)
+func SignIntermediate(pub crypto.PublicKey, subject pkix.Name, nc NameConstraints, validity time.Duration, issuer *x509.Certificate, issuerKey crypto.Signer) (*x509.Certificate, error) {
+	tmpl, err := caTemplate(subject, 0, nc, validity)
 	if err != nil {
 		return nil, err
 	}
@@ -65,8 +99,11 @@ func SignIntermediate(pub crypto.PublicKey, subject pkix.Name, nc NameConstraint
 // SignLeaf issues a server or client certificate. keyEncipherment is added for
 // RSA server keys only: it describes RSA key transport and means nothing for
 // an ECDSA key.
-func SignLeaf(pub crypto.PublicKey, subject pkix.Name, sans SANs, kind LeafKind, issuer *x509.Certificate, issuerKey crypto.Signer) (*x509.Certificate, error) {
-	tmpl, err := baseTemplate(subject, LeafValidityDays)
+func SignLeaf(pub crypto.PublicKey, subject pkix.Name, sans SANs, kind LeafKind, validity time.Duration, issuer *x509.Certificate, issuerKey crypto.Signer) (*x509.Certificate, error) {
+	if validity == 0 {
+		validity = Days(LeafValidityDays)
+	}
+	tmpl, err := baseTemplate(subject, validity)
 	if err != nil {
 		return nil, err
 	}
@@ -83,8 +120,11 @@ func SignLeaf(pub crypto.PublicKey, subject pkix.Name, sans SANs, kind LeafKind,
 	return sign(tmpl, issuer, pub, issuerKey)
 }
 
-func caTemplate(subject pkix.Name, pathLen int, nc NameConstraints) (*x509.Certificate, error) {
-	tmpl, err := baseTemplate(subject, CAValidityDays)
+func caTemplate(subject pkix.Name, pathLen int, nc NameConstraints, validity time.Duration) (*x509.Certificate, error) {
+	if validity == 0 {
+		validity = Days(CAValidityDays)
+	}
+	tmpl, err := baseTemplate(subject, validity)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +137,7 @@ func caTemplate(subject pkix.Name, pathLen int, nc NameConstraints) (*x509.Certi
 	return tmpl, nil
 }
 
-func baseTemplate(subject pkix.Name, days int) (*x509.Certificate, error) {
+func baseTemplate(subject pkix.Name, validity time.Duration) (*x509.Certificate, error) {
 	serial, err := newSerial()
 	if err != nil {
 		return nil, err
@@ -107,7 +147,7 @@ func baseTemplate(subject pkix.Name, days int) (*x509.Certificate, error) {
 		SerialNumber: serial,
 		Subject:      subject,
 		NotBefore:    now.Add(-backdate),
-		NotAfter:     now.AddDate(0, 0, days),
+		NotAfter:     now.Add(validity),
 	}, nil
 }
 
@@ -115,8 +155,12 @@ func baseTemplate(subject pkix.Name, days int) (*x509.Certificate, error) {
 // crypto/x509's defaults for the issuer's key: SHA-256 for RSA and P-256,
 // SHA-384 for P-384, SHA-512 for P-521. The authority key identifier is taken
 // from the issuer, and CA certificates get a subject key identifier computed
-// by crypto/x509.
+// by crypto/x509. A certificate never outlives its issuer: NotAfter is capped
+// at the issuer's.
 func sign(tmpl, issuer *x509.Certificate, pub crypto.PublicKey, issuerKey crypto.Signer) (*x509.Certificate, error) {
+	if tmpl != issuer && tmpl.NotAfter.After(issuer.NotAfter) {
+		tmpl.NotAfter = issuer.NotAfter
+	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, issuer, pub, issuerKey)
 	if err != nil {
 		return nil, fmt.Errorf("signing certificate for %s: %w", tmpl.Subject.CommonName, err)
@@ -160,24 +204,47 @@ func subjectKeyID(pub crypto.PublicKey) ([]byte, error) {
 // LoadCert reads the first certificate in a PEM file, skipping any text before
 // it (certificates written by older homepki releases start with a text dump).
 func LoadCert(path string) (*x509.Certificate, error) {
+	certs, err := loadCerts(path, 1)
+	if err != nil {
+		return nil, err
+	}
+	return certs[0], nil
+}
+
+// LoadCerts reads every certificate in a PEM file, in file order — for a chain
+// file such as <intermediate>-intermediate-ca-chain.crt, the intermediate then
+// the root. Text and PEM blocks of other types are skipped. A file with no
+// certificate is an error.
+func LoadCerts(path string) ([]*x509.Certificate, error) {
+	return loadCerts(path, 0)
+}
+
+// loadCerts reads up to max certificates from a PEM file; 0 means all.
+func loadCerts(path string, max int) ([]*x509.Certificate, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	for rest := data; ; {
+	var certs []*x509.Certificate
+	for rest := data; max == 0 || len(certs) < max; {
 		var block *pem.Block
 		block, rest = pem.Decode(rest)
 		if block == nil {
-			return nil, fmt.Errorf("no certificate PEM block found in %s", path)
+			break
 		}
-		if block.Type == "CERTIFICATE" {
-			cert, err := x509.ParseCertificate(block.Bytes)
-			if err != nil {
-				return nil, fmt.Errorf("parsing %s: %w", path, err)
-			}
-			return cert, nil
+		if block.Type != "CERTIFICATE" {
+			continue
 		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("parsing certificate %d of %s: %w", len(certs)+1, path, err)
+		}
+		certs = append(certs, cert)
 	}
+	if len(certs) == 0 {
+		return nil, fmt.Errorf("no certificate PEM block found in %s", path)
+	}
+	return certs, nil
 }
 
 // WriteCerts writes one or more certificates to a PEM file, in order.

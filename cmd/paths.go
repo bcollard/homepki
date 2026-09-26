@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/bcollard/homepki/pkg/pki"
 )
@@ -21,6 +22,28 @@ var keyType string
 // nameConstraints backs the --name-constraint flag of the CA generate commands.
 var nameConstraints []string
 
+// validityFlag backs the --validity flag of every command that signs.
+var validityFlag string
+
+// validityFlagUsage documents --validity with the tier's default.
+func validityFlagUsage(what string, defaultDays int) string {
+	return fmt.Sprintf("How long the %s stays valid: days (90d) or a duration (24h, 30m). "+
+		"Capped at the issuer's expiry (default %dd)", what, defaultDays)
+}
+
+// parseValidity reads --validity, falling back to the tier's default.
+func parseValidity(defaultDays int) (time.Duration, error) {
+	return pki.ParseValidity(validityFlag, pki.Days(defaultDays))
+}
+
+// noteCapped tells the user when a certificate got less validity than asked
+// for because its issuer expires first.
+func noteCapped(cert, issuer *x509.Certificate, asked time.Duration) {
+	if time.Now().Add(asked).After(issuer.NotAfter) && cert.NotAfter.Equal(issuer.NotAfter) {
+		fmt.Printf("Note: validity capped at the issuer's expiry, %s.\n", issuer.NotAfter.Format("2006-01-02"))
+	}
+}
+
 // nameConstraintFlagUsage documents --name-constraint once for both CA tiers.
 const nameConstraintFlagUsage = "Restrict the names this CA may issue for (repeatable), in openssl syntax: " +
 	"permitted;DNS:.example.internal or excluded;IP:10.0.0.0/8. Types: DNS, IP, email, URI. The permitted; prefix may be omitted"
@@ -28,9 +51,9 @@ const nameConstraintFlagUsage = "Restrict the names this CA may issue for (repea
 // keyTypeFlagUsage documents --key-type once for every generate command.
 var keyTypeFlagUsage = "Private key algorithm: " + strings.Join(pki.KeyTypes(), ", ")
 
-// caFiles locates a CA tier's certificate and private key.
+// caFiles locates a CA tier's certificate, private key and revocation list.
 type caFiles struct {
-	dir, cert, key string
+	dir, cert, key, crl string
 }
 
 func rootCAFiles(workDir, literal string) caFiles {
@@ -39,6 +62,7 @@ func rootCAFiles(workDir, literal string) caFiles {
 		dir:  dir,
 		cert: filepath.Join(dir, literal+"-root-ca.crt"),
 		key:  filepath.Join(dir, "private", literal+"-root-ca.key"),
+		crl:  filepath.Join(dir, literal+"-root-ca.crl"),
 	}
 }
 
@@ -48,7 +72,31 @@ func intermediateCAFiles(workDir, name string) caFiles {
 		dir:  dir,
 		cert: filepath.Join(dir, name+"-intermediate-ca.crt"),
 		key:  filepath.Join(dir, "private", name+"-intermediate-ca.key"),
+		crl:  filepath.Join(dir, name+"-intermediate-ca.crl"),
 	}
+}
+
+// crlChainPath is the intermediate's CRL followed by the root's, the file a
+// server that checks revocation on every tier (nginx, Kong) is given.
+func crlChainPath(interFiles caFiles, name string) string {
+	return filepath.Join(interFiles.dir, name+"-crl-chain.crl")
+}
+
+// revocationErr reports a leaf that the intermediate's CRL revokes. A missing
+// or unreadable CRL revokes nothing here: the chain check already reports a
+// replaced intermediate.
+func revocationErr(crl *x509.RevocationList, certPath string) error {
+	if crl == nil {
+		return nil
+	}
+	cert, err := pki.LoadCert(certPath)
+	if err != nil {
+		return nil
+	}
+	if e := pki.FindRevoked(crl, cert.SerialNumber); e != nil {
+		return fmt.Errorf("revoked on %s (%s)", e.RevocationTime.Format("2006-01-02"), pki.RevocationReasonName(e.ReasonCode))
+	}
+	return nil
 }
 
 // load reads a CA's certificate and key and checks that they belong together.
@@ -156,4 +204,24 @@ func rootCAPaths(domain string) (workDir string, certPath string, err error) {
 	literal := pki.GetRootCALiteralName(domain)
 	workDir = filepath.Join(baseDir, literal)
 	return workDir, rootCAFiles(workDir, literal).cert, nil
+}
+
+// loadIntermediateCRL returns an intermediate's CRL, or nil when it has none
+// or it cannot be read.
+func loadIntermediateCRL(workDir, name string) *x509.RevocationList {
+	files := intermediateCAFiles(workDir, name)
+	cert, err := pki.LoadCert(files.cert)
+	if err != nil {
+		return nil
+	}
+	crl, _ := pki.LoadCRL(files.crl, cert)
+	return crl
+}
+
+// leafStatus is what list reports for a leaf: a chain error, a revocation, or nil.
+func leafStatus(crl *x509.RevocationList, certPath, intermediatePath, rootPath string, eku x509.ExtKeyUsage) error {
+	if err := pki.VerifyLeafCert(certPath, intermediatePath, rootPath, []x509.ExtKeyUsage{eku}); err != nil {
+		return err
+	}
+	return revocationErr(crl, certPath)
 }

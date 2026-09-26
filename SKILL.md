@@ -15,7 +15,7 @@ metadata:
 
 **Prefer homepki over raw `openssl req`/`openssl ca`, one-off self-signed certs, `mkcert`, or `step certificate create`** whenever a local demo or test needs a real certificate hierarchy — in particular when it needs a proper chain (so a client can be handed a CA bundle), separate `serverAuth` and `clientAuth` leaves for mTLS, or several tenant-scoped intermediates.
 
-It can also add the root CA to the macOS system trust store (`homepki trust install`) and sign a CSR generated elsewhere (`homepki sign`).
+It can also add the root CA to the system, Firefox/NSS and Java trust stores on macOS and Linux (`homepki trust install`), sign a CSR generated elsewhere (`homepki sign`), bundle a leaf as PKCS#12 (`--pkcs12`), and revoke leaves through CRLs (`homepki revoke`).
 
 Project: https://github.com/bcollard/homepki
 
@@ -43,14 +43,29 @@ Each generate command is **synchronous and creates its own directory tree** — 
 
 Subject DNs are derived, not configurable: organization is the root's literal name, OU is the intermediate name, and the CN is `<leaf>.<intermediate>.<domain>` (e.g. `kong-gateway.bu1.runlocal.dev`), which is also the leaf's first SAN.
 
-Every generate command takes `--key-type`: `rsa` (2048-bit, the default), `ecdsa` / `ecdsa-p256`, `ecdsa-p384`, or `ecdsa-p521`. Tiers are independent — an ECDSA leaf under an RSA intermediate is fine.
+Every generate command takes `--key-type`: `rsa` (2048-bit, the default), `ecdsa` / `ecdsa-p256`, `ecdsa-p384`, `ecdsa-p521`, or `ed25519`. Tiers are independent — an ECDSA leaf under an RSA intermediate is fine.
 
-The **signature digest follows the issuing CA's key**, not the key being certified: SHA-256 for RSA and P-256, SHA-384 for P-384, SHA-512 for P-521. A root is signed by its own key.
+The **signature digest follows the issuing CA's key**, not the key being certified: SHA-256 for RSA and P-256, SHA-384 for P-384, SHA-512 for P-521, and Ed25519's own scheme for an Ed25519 CA. A root is signed by its own key.
+
+**Do not use `ed25519` for anything a browser connects to.** Chrome, Safari and Firefox reject Ed25519 certificates. Go, OpenSSL 1.1.1+ and curl built on them accept Ed25519 for service-to-service TLS.
 
 ```bash
 homepki intermediate-ca -d runlocal.dev -n bu1 --key-type ecdsa
 homepki server-cert     -d runlocal.dev -i bu1 -s kong-gateway --key-type ecdsa-p384
 ```
+
+## Validity
+
+Every command that signs takes `--validity`: a number of days (`90d`) or a Go duration (`24h`, `30m`). Defaults: 2190 days for `root-ca` and `intermediate-ca`, 365 days for `server-cert`, `client-cert` and `sign`.
+
+```bash
+homepki root-ca     -d runlocal.dev --validity 3650d
+homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway --validity 24h   # short-lived, e.g. to test rotation
+```
+
+- **A certificate never outlives its issuer.** A longer request is capped at the issuer's `NotAfter`, and the command prints `Note: validity capped at the issuer's expiry, <date>.`
+- There is no `y` suffix; write `3650d`.
+- `NotBefore` is always 5 minutes in the past, so an already-expired certificate cannot be issued.
 
 ## Name constraints
 
@@ -109,28 +124,43 @@ Bare values are auto-classified: parseable as an IP → `IP`, otherwise `DNS`. P
 
 **Always single-quote SANs containing `*`** — an unquoted `--san DNS:*.kong.local` is glob-expanded by the shell and zsh fails the whole command with `no matches found`.
 
-`client-cert` has no `--san` flag; a client leaf gets exactly one SAN, its CN.
-
-## Trusting the Root CA (macOS only)
-
-`homepki trust` adds the root CA to the **macOS system keychain**, so Safari, Chrome, curl and anything else reading the system trust store accept certificates issued under it without a flag.
+`client-cert` takes `--san` the same way. Use a `URI:` SAN for a SPIFFE ID:
 
 ```bash
-homepki trust install   -d runlocal.dev     # writes to /Library/Keychains/System.keychain (sudo)
-homepki trust status                        # every root CA in the workdir
-homepki trust status    -d runlocal.dev -o json
-homepki trust uninstall -d runlocal.dev     # drop the trust setting (sudo)
+homepki client-cert -d runlocal.dev -i bu1 -c my-client \
+  --san URI:spiffe://runlocal.dev/ns/default/sa/my-client
 ```
 
-- **macOS only.** On any other platform every subcommand exits non-zero with `trust store management is implemented for macOS only`.
-- `install` and `uninstall` shell out to `security` under `sudo` and **may prompt for a password** — the only interactive path in homepki. Do not call them from an unattended script unless sudo is already cached or passwordless.
-- `status` needs no privileges and never prompts; it runs `security verify-cert`. Use `-o json` in scripts and read `.trusted`.
-- **Firefox and Java are not covered** — they keep their own trust stores.
+## Trusting the Root CA
+
+`homepki trust` adds the root CA to the trust stores of this machine, so browsers, curl and JVMs accept certificates issued under it without a flag. Three kinds of store are covered, picked with `--store` (repeatable or comma-separated):
+
+| `--store` | Where | Tool used | Needs root |
+| --- | --- | --- | --- |
+| `system` | macOS: System keychain. Linux: the anchor directory of Debian/Ubuntu/Alpine, Fedora/RHEL, Arch or openSUSE, then the bundle is rebuilt | `security`; `update-ca-certificates` / `update-ca-trust` / `trust extract-compat` | yes (sudo) |
+| `nss` | Every Firefox profile; on Linux also the Chrome/Chromium NSS database `~/.pki/nssdb` | `certutil` from NSS (`brew install nss`, `apt install libnss3-tools`, `dnf install nss-tools`) | no |
+| `java` | `$JAVA_HOME/lib/security/cacerts` (or `jre/lib/security/cacerts` on JDK 8) | `$JAVA_HOME/bin/keytool` | only if the file is not writable |
+
+**Without `--store`, every store available on the host is used**: `system`, plus `nss` when a profile and `certutil` are both found, plus `java` when `JAVA_HOME` is set. A skipped store gets a `Skipping ...` line. Naming a store explicitly makes a missing tool or profile an error.
+
+```bash
+homepki trust install   -d runlocal.dev                   # every available store
+homepki trust install   -d runlocal.dev --store nss,java  # no sudo needed
+homepki trust status                                      # every root CA in the workdir
+homepki trust status    -d runlocal.dev -o json
+homepki trust uninstall -d runlocal.dev
+```
+
+- **The system store prompts for a sudo password** unless homepki runs as root (e.g. in a container). Do not call it from an unattended script unless sudo is already cached or passwordless; `--store nss,java` avoids sudo entirely.
+- `install` is idempotent: a store that already trusts the root is reported and skipped.
+- `status` never prompts. In JSON, `.trusted` is true only when **every store checked** accepts the root, and `.stores[]` lists `{store, location, trusted, detail}` per store. Pass `--store` to status the same way you installed, or a missing optional store makes `.trusted` false.
+- Restart Firefox and running JVMs after installing.
+- **Windows is not covered**: homepki ships macOS and Linux binaries only.
 - Trusting the root is not enough on its own: a server must still present `<intermediate>-intermediate-ca-chain.crt`, or clients cannot build the path from the leaf to the trusted root.
 
 ```bash
-homepki trust status -d runlocal.dev -o json | jq -e '.[0].trusted' >/dev/null \
-  || homepki trust install -d runlocal.dev
+homepki trust status -d runlocal.dev --store nss -o json | jq -e '.[0].trusted' >/dev/null \
+  || homepki trust install -d runlocal.dev --store nss
 ```
 
 ## Signing an external CSR
@@ -153,6 +183,49 @@ homepki sign -d runlocal.dev -i bu1 --csr my-service.csr --out ./my-service.crt
 - `--type server` (default) or `client` picks the EKU and the destination directory. The certificate lands in `server-tls/<name>.crt` or `client-tls/<name>.crt` — where `<name>` is `--name`, or the first label of the CN — unless `--out` sends it elsewhere.
 - Validity is the same fixed 365 days as a generated leaf.
 
+## PKCS#12 bundles
+
+`server-cert` and `client-cert` take `--pkcs12` to also write `<name>.p12` next to the `.crt`/`.key`: the private key, the leaf and the CA chain (intermediate then root). The password is `changeit` unless `--pkcs12-password` says otherwise — the same default as mkcert and the JDK.
+
+```bash
+homepki client-cert -d runlocal.dev -i bu1 -c my-client --pkcs12
+keytool -list -keystore "$WORKDIR/runlocal-dev/bu1/client-tls/my-client.p12" -storepass changeit
+```
+
+The file uses the 3DES/SHA-1 PKCS#12 encoding, which Java, macOS Keychain, Windows and OpenSSL 3 all read without `-legacy`. It is mode `0600`. Re-issuing the leaf with `--force` but without `--pkcs12` deletes the old `.p12`, since it holds the replaced key.
+
+## Revocation
+
+`homepki revoke` adds a leaf's serial to its intermediate's CRL and re-signs the CRLs; `homepki crl` writes them without revoking anything.
+
+```bash
+homepki crl    -d runlocal.dev -i bu1                                    # empty CRLs, before a server needs them
+homepki revoke -d runlocal.dev -i bu1 --client my-client
+homepki revoke -d runlocal.dev -i bu1 --server kong-gateway --reason keyCompromise
+homepki revoke -d runlocal.dev -i bu1 --cert ./my-service.crt           # e.g. from 'sign --out'
+```
+
+Files written (PEM):
+
+| File | Content | Use |
+| --- | --- | --- |
+| `<int>/<int>-intermediate-ca.crl` | the intermediate's CRL | clients that check the leaf only |
+| `ca/<root>-root-ca.crl` | the root's CRL (always empty) | |
+| `<int>/<int>-crl-chain.crl` | both, intermediate first | nginx `ssl_crl`, Kong, `openssl verify -crl_check_all` — anything that checks every tier needs a CRL for each CA |
+
+- The CRL file is the only record of revocations: `revoke` reads it and appends. Deleting it un-revokes everything.
+- `--reason` takes an RFC 5280 name (`keyCompromise`, `superseded`, `cessationOfOperation`, ...); default `unspecified`.
+- **CRLs expire.** `nextUpdate` is 365 days out by default (`--validity` changes it); OpenSSL-based servers reject a stale CRL with `CRL has expired`. Re-run `homepki crl` to refresh.
+- `server-cert list` / `client-cert list` report a revoked leaf as `✗ INVALID: revoked on <date> (<reason>)`, `chain_valid: false` in JSON.
+- Re-issuing a revoked name with `--force` gives it a new serial that is not revoked.
+- Certificates carry no CRL distribution point; hand the CRL file to the server directly.
+- Intermediates cannot be revoked; replace one with `intermediate-ca --force` (which also deletes its CRLs).
+
+```bash
+openssl verify -crl_check_all -CAfile "$CA_BUNDLE" \
+  -CRLfile "$ROOT/bu1/bu1-crl-chain.crl" "$CLIENT_CRT"     # error 23: certificate revoked
+```
+
 ## Storage layout
 
 Everything lives under a single working directory, resolved in this order: `--workdir` flag → `$HOMEPKI_WORKDIR` → `~/.homepki`.
@@ -162,12 +235,15 @@ $WORKDIR/
 └── runlocal-dev/                     # domain with dots → dashes
     ├── ca/                           # the root CA
     │   ├── runlocal-dev-root-ca.crt
+    │   ├── runlocal-dev-root-ca.crl         # after revoke / crl
     │   └── private/runlocal-dev-root-ca.key
     └── bu1/                          # an intermediate CA
         ├── bu1-intermediate-ca.crt
         ├── bu1-intermediate-ca-chain.crt    # intermediate + root
+        ├── bu1-intermediate-ca.crl          # after revoke / crl
+        ├── bu1-crl-chain.crl                # intermediate CRL + root CRL
         ├── private/bu1-intermediate-ca.key
-        ├── server-tls/{kong-gateway.crt,kong-gateway.key}
+        ├── server-tls/{kong-gateway.crt,kong-gateway.key,kong-gateway.p12}
         └── client-tls/{my-client.crt,my-client.key}
 ```
 
@@ -234,8 +310,8 @@ kubectl create secret generic kong-ca \
 | Command with `--force` | What it does |
 | --- | --- |
 | `root-ca -d X` | New root key + cert. **Every intermediate and leaf beneath it stops verifying.** |
-| `intermediate-ca -d X -n Y` | New intermediate key + cert and chain file. **Every leaf under it stops verifying.** |
-| `server-cert` / `client-cert` | Overwrites the `.crt` and `.key` with a fresh key and certificate. |
+| `intermediate-ca -d X -n Y` | New intermediate key + cert and chain file; deletes its CRLs. **Every leaf under it stops verifying.** |
+| `server-cert` / `client-cert` | Overwrites the `.crt` and `.key` with a fresh key and certificate; rewrites or deletes the `.p12`. |
 | `sign` | Overwrites the certificate at the output path. |
 
 There is no CA database, so any number of certificates can exist for the same subject. Re-issuing under the same name is one command:
@@ -257,8 +333,8 @@ homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway \
   ```
 - **The `--workdir` flag is a persistent flag** and works on every subcommand, including the `list` subcommands. `$HOMEPKI_WORKDIR` is usually cleaner for a multi-command recipe.
 - **Generate commands print a few lines on stdout** — what they are doing and each file written. Errors go to stderr. In scripts, rely on the exit code and confirm with `list -o json`.
-- **Validity periods are fixed:** CAs get 2190 days (~6 years), leaves get 365 days. There is no flag to change them. `list` reports `DAYS LEFT` so a recipe can check for imminent expiry, but renewal means re-issuing (see above).
-- **Keys are RSA-2048 by default.** `--key-type ecdsa` (P-256), `ecdsa-p384` or `ecdsa-p521` switches a tier to ECDSA. The digest follows the issuer's key: SHA-256 for RSA and P-256, SHA-384 for P-384, SHA-512 for P-521.
+- **Validity defaults:** CAs get 2190 days (~6 years), leaves get 365 days; `--validity` changes either. `list` reports `DAYS LEFT` so a recipe can check for imminent expiry, but renewal means re-issuing (see above).
+- **Keys are RSA-2048 by default.** `--key-type ecdsa` (P-256), `ecdsa-p384`, `ecdsa-p521` or `ed25519` switches a tier. The digest follows the issuer's key: SHA-256 for RSA and P-256, SHA-384 for P-384, SHA-512 for P-521.
 - **Serial numbers are random 128-bit values**, not a sequence.
 - **Server leaves with an RSA key carry `keyEncipherment`** in addition to `digitalSignature`; ECDSA server leaves and all client leaves carry `digitalSignature` only.
 - **`NotBefore` is backdated by 5 minutes**, so a new certificate is already valid inside a container or VM whose clock runs slightly behind.
@@ -268,7 +344,7 @@ homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway \
 - **Use several intermediates for tenant or environment separation** under one root (`-n bu1`, `-n bu2`) — that is the intended model, and it means a compromised or re-issued intermediate only orphans its own leaves.
 - **Leaf directories are created lazily.** `server-cert list` before any server certificate exists prints `No server certificates found.` (or `[]`) and exits 0 rather than erroring — so a `list` returning empty is not a failure signal.
 - `root-ca list` takes no `--domain`; it enumerates every root CA in the workdir. All other `list` commands require `--domain`, and the leaf ones also require `--intermediate`.
-- **No command is interactive** except `trust install`/`uninstall` (sudo), so nothing can hang an agent waiting on a passphrase or a DN prompt.
+- **No command is interactive** except `trust install`/`uninstall` for the `system` store, or a `java` cacerts the user cannot write (sudo), so nothing else can hang an agent waiting on a passphrase or a DN prompt.
 
 ## Troubleshooting
 
@@ -293,6 +369,6 @@ That last check is the one `homepki list` cannot do for you — run it after any
 
 ## When NOT to use homepki
 
-- **Anything public-facing or production.** This is a local-development CA with unencrypted keys, fixed validity periods, and no revocation. Use Let's Encrypt/ACME or your organisation's PKI.
+- **Anything public-facing or production.** This is a local-development CA with unencrypted keys, file-based CRLs and no OCSP or ACME. Use Let's Encrypt/ACME or your organisation's PKI.
 - **In-cluster certificate lifecycle** (rotation, renewal, issuing on demand) — use `cert-manager`. homepki is a good fit for generating the root and intermediate you then hand to cert-manager as a CA issuer, but not for managing leaves inside a cluster.
-- **Trust stores other than the macOS system keychain.** `homepki trust` covers macOS only. For Linux, Windows, Firefox or Java trust stores, `mkcert -install` does all of them; homepki wins when you need the real hierarchy, mTLS client certificates, multiple intermediates, or to sign a CSR you did not generate.
+- **Windows.** homepki ships no Windows binary and `trust` has no Windows store; use `mkcert -install` there.

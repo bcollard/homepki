@@ -25,6 +25,10 @@ var serverCertCmd = &cobra.Command{
   homepki server-cert --domain runlocal.dev --intermediate bu1 --server kong-gateway \
     --san kong.local --san 192.168.1.10 --san IP:::1 --san DNS:*.kong.local
 
+  # Issue a short-lived certificate and a PKCS#12 bundle for Java
+  homepki server-cert --domain runlocal.dev --intermediate bu1 --server kong-gateway \
+    --validity 24h --pkcs12
+
   # Replace an existing certificate of the same name
   homepki server-cert --domain runlocal.dev --intermediate bu1 --server kong-gateway --force
 
@@ -52,7 +56,7 @@ var serverCertCmd = &cobra.Command{
 var serverCertListCmd = &cobra.Command{
 	Use:     "list",
 	Aliases: []string{"ls", "l"},
-	Short:   "List server certificates with expiry and chain verification against the Intermediate and Root CA",
+	Short:   "List server certificates with expiry, revocation and chain verification against the Intermediate and Root CA",
 	Example: `  homepki server-cert list --domain runlocal.dev --intermediate bu1
   homepki server-cert list --domain runlocal.dev --intermediate bu1 -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -90,6 +94,8 @@ var serverCertListCmd = &cobra.Command{
 			return err
 		}
 
+		crl := loadIntermediateCRL(workDir, intermediateCAName)
+
 		var entries []certEntry
 		for _, file := range files {
 			certPath := filepath.Join(serverDir, file)
@@ -103,7 +109,7 @@ var serverCertListCmd = &cobra.Command{
 				name:     file,
 				expiry:   expiryStr,
 				daysLeft: days,
-				chainErr: pki.VerifyLeafCert(certPath, intermediateCACertPath, rootCACertPath, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}),
+				chainErr: leafStatus(crl, certPath, intermediateCACertPath, rootCACertPath, x509.ExtKeyUsageServerAuth),
 			})
 		}
 
@@ -121,6 +127,9 @@ func init() {
 	serverCertCmd.Flags().StringVarP(&serverName, "server", "s", "", "Server name (e.g., kong-gateway-clustering)")
 	serverCertCmd.Flags().StringVar(&keyType, "key-type", "rsa", keyTypeFlagUsage)
 	serverCertCmd.Flags().BoolVarP(&forceGenerate, "force", "f", false, "Replace an existing certificate of the same name (its key is regenerated)")
+	serverCertCmd.Flags().StringVar(&validityFlag, "validity", "", validityFlagUsage("certificate", pki.LeafValidityDays))
+	serverCertCmd.Flags().BoolVar(&pkcs12Out, "pkcs12", false, "Also write <server>.p12 with the key, certificate and CA chain")
+	serverCertCmd.Flags().StringVar(&pkcs12Password, "pkcs12-password", pki.DefaultPKCS12Password, "Password of the PKCS#12 file")
 	serverCertCmd.Flags().StringArrayVar(&serverSANs, "san", nil, "Additional Subject Alternative Name (repeatable). Bare values are auto-detected as IP or DNS; prefix with DNS:, IP:, email:, or URI: to force a type")
 	serverCertCmd.MarkFlagRequired("domain")
 	serverCertCmd.MarkFlagRequired("intermediate")

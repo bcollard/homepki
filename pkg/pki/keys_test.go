@@ -47,7 +47,7 @@ func TestGenerateKey(t *testing.T) {
 }
 
 func TestGenerateKeyRejectsUnknown(t *testing.T) {
-	for _, bad := range []string{"ed25519", "ecdsa-p128", "rsa:4096", "ec"} {
+	for _, bad := range []string{"ed448", "ecdsa-p128", "rsa:4096", "ec"} {
 		if _, err := GenerateKey(bad); err == nil {
 			t.Errorf("GenerateKey(%q): expected error, got nil", bad)
 		}

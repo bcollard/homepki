@@ -39,6 +39,10 @@ var intermediateCACmd = &cobra.Command{
 		if err := pki.ValidateKeyType(keyType); err != nil {
 			return err
 		}
+		validity, err := parseValidity(pki.CAValidityDays)
+		if err != nil {
+			return err
+		}
 
 		rootCALiteralName := pki.GetRootCALiteralName(rootCADomain)
 		baseDir, err := getEffectiveWorkDir()
@@ -91,7 +95,7 @@ var intermediateCACmd = &cobra.Command{
 			Organization:       []string{rootCALiteralName},
 			OrganizationalUnit: []string{intermediateCAName},
 			CommonName:         fmt.Sprintf("%s.%s", intermediateCAName, rootCADomain),
-		}, nc, rootCert, rootKey)
+		}, nc, validity, rootCert, rootKey)
 		if err != nil {
 			return err
 		}
@@ -107,6 +111,7 @@ var intermediateCACmd = &cobra.Command{
 			return err
 		}
 		if err := removeOpenSSLLeftovers(files.dir,
+			files.crl, crlChainPath(files, intermediateCAName), // signed by the replaced key
 			filepath.Join(files.dir, intermediateCAName+".conf"),
 			filepath.Join(files.dir, intermediateCAName+"-intermediate-ca.csr"),
 			filepath.Join(files.dir, intermediateCAName+"-signing-ext.conf")); err != nil {
@@ -114,6 +119,7 @@ var intermediateCACmd = &cobra.Command{
 		}
 
 		fmt.Printf("Wrote %s\nWrote %s\nWrote %s\n", files.key, files.cert, chainPath)
+		noteCapped(cert, rootCert, validity)
 		fmt.Println("Intermediate CA generated successfully.")
 		return nil
 	},
@@ -182,6 +188,7 @@ func init() {
 	intermediateCACmd.Flags().StringVarP(&intermediateCAName, "name", "n", "", "Intermediate CA name (e.g., bu1)")
 	intermediateCACmd.Flags().StringVar(&keyType, "key-type", "rsa", keyTypeFlagUsage)
 	intermediateCACmd.Flags().BoolVarP(&forceGenerate, "force", "f", false, "Replace an existing Intermediate CA (orphans every certificate under it)")
+	intermediateCACmd.Flags().StringVar(&validityFlag, "validity", "", validityFlagUsage("Intermediate CA", pki.CAValidityDays))
 	intermediateCACmd.Flags().StringArrayVar(&nameConstraints, "name-constraint", nil, nameConstraintFlagUsage)
 	intermediateCACmd.MarkFlagRequired("domain")
 	intermediateCACmd.MarkFlagRequired("name")

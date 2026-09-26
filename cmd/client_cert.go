@@ -9,13 +9,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var clientName string
+var (
+	clientName string
+	clientSANs []string
+)
 
 var clientCertCmd = &cobra.Command{
 	Use:   "client-cert",
 	Short: "Generate a client TLS certificate signed by an Intermediate CA",
 	Example: `  # Generate a client certificate for 'my-client'
   homepki client-cert --domain runlocal.dev --intermediate bu1 --client my-client
+
+  # Add a SPIFFE ID as a URI Subject Alternative Name
+  homepki client-cert --domain runlocal.dev --intermediate bu1 --client my-client \
+    --san URI:spiffe://runlocal.dev/ns/default/sa/my-client
+
+  # Also write a PKCS#12 bundle (password: changeit)
+  homepki client-cert --domain runlocal.dev --intermediate bu1 --client my-client --pkcs12
 
   # Replace an existing certificate of the same name
   homepki client-cert --domain runlocal.dev --intermediate bu1 --client my-client --force
@@ -31,7 +41,7 @@ var clientCertCmd = &cobra.Command{
 			label:  "client",
 			subdir: "client-tls",
 			name:   clientName,
-			sans:   nil,
+			sans:   clientSANs,
 			inUse:  "authenticating with",
 		}); err != nil {
 			return err
@@ -44,7 +54,7 @@ var clientCertCmd = &cobra.Command{
 var clientCertListCmd = &cobra.Command{
 	Use:     "list",
 	Aliases: []string{"ls", "l"},
-	Short:   "List client certificates with expiry and chain verification against the Intermediate and Root CA",
+	Short:   "List client certificates with expiry, revocation and chain verification against the Intermediate and Root CA",
 	Example: `  homepki client-cert list --domain runlocal.dev --intermediate bu1
   homepki client-cert list --domain runlocal.dev --intermediate bu1 -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -82,6 +92,8 @@ var clientCertListCmd = &cobra.Command{
 			return err
 		}
 
+		crl := loadIntermediateCRL(workDir, intermediateCAName)
+
 		var entries []certEntry
 		for _, file := range files {
 			certPath := filepath.Join(clientDir, file)
@@ -95,7 +107,7 @@ var clientCertListCmd = &cobra.Command{
 				name:     file,
 				expiry:   expiryStr,
 				daysLeft: days,
-				chainErr: pki.VerifyLeafCert(certPath, intermediateCACertPath, rootCACertPath, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}),
+				chainErr: leafStatus(crl, certPath, intermediateCACertPath, rootCACertPath, x509.ExtKeyUsageClientAuth),
 			})
 		}
 
@@ -113,6 +125,10 @@ func init() {
 	clientCertCmd.Flags().StringVarP(&clientName, "client", "c", "", "Client name (e.g., my-client)")
 	clientCertCmd.Flags().StringVar(&keyType, "key-type", "rsa", keyTypeFlagUsage)
 	clientCertCmd.Flags().BoolVarP(&forceGenerate, "force", "f", false, "Replace an existing certificate of the same name (its key is regenerated)")
+	clientCertCmd.Flags().StringVar(&validityFlag, "validity", "", validityFlagUsage("certificate", pki.LeafValidityDays))
+	clientCertCmd.Flags().BoolVar(&pkcs12Out, "pkcs12", false, "Also write <client>.p12 with the key, certificate and CA chain")
+	clientCertCmd.Flags().StringVar(&pkcs12Password, "pkcs12-password", pki.DefaultPKCS12Password, "Password of the PKCS#12 file")
+	clientCertCmd.Flags().StringArrayVar(&clientSANs, "san", nil, "Additional Subject Alternative Name (repeatable). Bare values are auto-detected as IP or DNS; prefix with DNS:, IP:, email:, or URI: to force a type")
 	clientCertCmd.MarkFlagRequired("domain")
 	clientCertCmd.MarkFlagRequired("intermediate")
 	clientCertCmd.MarkFlagRequired("client")

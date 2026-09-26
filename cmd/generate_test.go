@@ -242,7 +242,7 @@ func TestInputValidation(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"root-ca", "-d", "v.test", "--key-type", "ed25519"}, "unknown key type"},
+		{[]string{"root-ca", "-d", "v.test", "--key-type", "ed448"}, "unknown key type"},
 		{[]string{"root-ca", "-d", "v.test", "--name-constraint", "permitted;dirName:CN=x"}, "type must be one of DNS, IP, email, URI"},
 		{[]string{"root-ca", "-d", "v.test", "--name-constraint", "IP:10.0.0.0"}, "needs a range"},
 		{[]string{"intermediate-ca", "-d", "v.test", "-n", "bu1"}, "does not exist"},

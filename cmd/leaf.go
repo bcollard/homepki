@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"crypto/x509"
 	"crypto/x509/pkix"
 	"fmt"
 	"path/filepath"
@@ -21,6 +22,13 @@ type leafRequest struct {
 	inUse string
 }
 
+// pkcs12Out and pkcs12Password back --pkcs12 and --pkcs12-password of
+// server-cert and client-cert.
+var (
+	pkcs12Out      bool
+	pkcs12Password string
+)
+
 // generateLeaf issues a key and certificate under an intermediate CA. The
 // certificate is checked against its chain before anything is written, and
 // its common name, <name>.<intermediate>.<domain>, is always its first SAN.
@@ -35,6 +43,10 @@ func generateLeaf(r leafRequest) error {
 		return fmt.Errorf("%s name is required", r.label)
 	}
 	if err := pki.ValidateKeyType(keyType); err != nil {
+		return err
+	}
+	validity, err := parseValidity(pki.LeafValidityDays)
+	if err != nil {
 		return err
 	}
 
@@ -58,10 +70,15 @@ func generateLeaf(r leafRequest) error {
 	commonName := fmt.Sprintf("%s.%s.%s", r.name, intermediateCAName, rootCADomain)
 	crtPath := filepath.Join(leafDir, r.name+".crt")
 	keyPath := filepath.Join(leafDir, r.name+".key")
+	p12Path := filepath.Join(leafDir, r.name+".p12")
 	// Written by releases that drove openssl; removed along with the pair.
-	legacy := []string{filepath.Join(leafDir, r.name+".csr"), filepath.Join(leafDir, r.name+".conf")}
+	stale := []string{filepath.Join(leafDir, r.name+".csr"), filepath.Join(leafDir, r.name+".conf")}
+	if !pkcs12Out {
+		// A bundle left from an earlier issue would hold the old key.
+		stale = append(stale, p12Path)
+	}
 
-	if present := pathsPresent(crtPath, keyPath); len(present) > 0 {
+	if present := pathsPresent(crtPath, keyPath, p12Path); len(present) > 0 {
 		if !forceGenerate {
 			return fmt.Errorf("a %s certificate named %q already exists under %s/%s:\n  %s\n\n"+
 				"Re-issuing overwrites its private key, so anything already %s that pair breaks. "+
@@ -85,7 +102,7 @@ func generateLeaf(r leafRequest) error {
 		Organization:       []string{rootCALiteralName},
 		OrganizationalUnit: []string{intermediateCAName},
 		CommonName:         commonName,
-	}, sans, r.kind, intermediateCert, intermediateKey)
+	}, sans, r.kind, validity, intermediateCert, intermediateKey)
 	if err != nil {
 		return err
 	}
@@ -102,10 +119,19 @@ func generateLeaf(r leafRequest) error {
 	if err := pki.WriteCerts(crtPath, cert); err != nil {
 		return err
 	}
-	if err := removePaths(legacy...); err != nil {
+	if pkcs12Out {
+		if err := pki.WritePKCS12(p12Path, key, cert, []*x509.Certificate{intermediateCert, rootCert}, pkcs12Password); err != nil {
+			return err
+		}
+	}
+	if err := removePaths(stale...); err != nil {
 		return err
 	}
 
 	fmt.Printf("Wrote %s\nWrote %s\n", keyPath, crtPath)
+	if pkcs12Out {
+		fmt.Printf("Wrote %s (key, certificate and CA chain; password %q)\n", p12Path, pkcs12Password)
+	}
+	noteCapped(cert, intermediateCert, validity)
 	return nil
 }

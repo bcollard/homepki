@@ -20,6 +20,9 @@ var rootCACmd = &cobra.Command{
   # Generate a Root CA with an ECDSA P-256 key
   homepki root-ca --domain runlocal.dev --key-type ecdsa
 
+  # Generate a Root CA valid for 10 years
+  homepki root-ca --domain runlocal.dev --validity 3650d
+
   # Restrict the Root CA to names under klimax.internal
   homepki root-ca --domain klimax.internal --name-constraint "permitted;DNS:.klimax.internal"
 
@@ -33,6 +36,10 @@ var rootCACmd = &cobra.Command{
 			return fmt.Errorf("root CA domain name is required")
 		}
 		if err := pki.ValidateKeyType(keyType); err != nil {
+			return err
+		}
+		validity, err := parseValidity(pki.CAValidityDays)
+		if err != nil {
 			return err
 		}
 
@@ -75,7 +82,7 @@ var rootCACmd = &cobra.Command{
 		cert, err := pki.SelfSignRoot(key, pkix.Name{
 			Organization: []string{rootCALiteralName},
 			CommonName:   rootCADomain,
-		}, nc)
+		}, nc, validity)
 		if err != nil {
 			return err
 		}
@@ -86,6 +93,7 @@ var rootCACmd = &cobra.Command{
 			return err
 		}
 		if err := removeOpenSSLLeftovers(files.dir,
+			files.crl, // signed by the replaced key
 			filepath.Join(files.dir, rootCALiteralName+".conf"),
 			filepath.Join(files.dir, rootCALiteralName+"-root-ca.csr"),
 			filepath.Join(workDir, rootCALiteralName+"-defaults.conf")); err != nil {
@@ -155,6 +163,7 @@ func init() {
 	rootCACmd.Flags().StringVarP(&rootCADomain, "domain", "d", "", "Root CA domain name (e.g., runlocal.dev)")
 	rootCACmd.Flags().StringVar(&keyType, "key-type", "rsa", keyTypeFlagUsage)
 	rootCACmd.Flags().BoolVarP(&forceGenerate, "force", "f", false, "Replace an existing Root CA (orphans every certificate under it)")
+	rootCACmd.Flags().StringVar(&validityFlag, "validity", "", validityFlagUsage("Root CA", pki.CAValidityDays))
 	rootCACmd.Flags().StringArrayVar(&nameConstraints, "name-constraint", nil, nameConstraintFlagUsage)
 	rootCACmd.MarkFlagRequired("domain")
 	rootCAListCmd.Flags().StringVarP(&outputFormat, "output", "o", "table", "Output format: table or json")

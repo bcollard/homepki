@@ -49,6 +49,11 @@ name. A request that does not fit is rejected with the subject you need.`,
 			return fmt.Errorf("a certificate signing request is required (--csr)")
 		}
 
+		validity, err := parseValidity(pki.LeafValidityDays)
+		if err != nil {
+			return err
+		}
+
 		var kind pki.LeafKind
 		var leafSubdir, useVerb string
 		switch signType {
@@ -124,7 +129,7 @@ name. A request that does not fit is rejected with the subject you need.`,
 			OrganizationalUnit: csr.Subject.OrganizationalUnit,
 			CommonName:         csr.Subject.CommonName,
 		}
-		cert, err := pki.SignLeaf(csr.PublicKey, subject, sans, kind, intermediateCert, intermediateKey)
+		cert, err := pki.SignLeaf(csr.PublicKey, subject, sans, kind, validity, intermediateCert, intermediateKey)
 		if err != nil {
 			return err
 		}
@@ -142,6 +147,7 @@ name. A request that does not fit is rejected with the subject you need.`,
 
 		chainPath := filepath.Join(interFiles.dir, fmt.Sprintf("%s-intermediate-ca-chain.crt", intermediateCAName))
 		fmt.Printf("Certificate written to %s\n", crtPath)
+		noteCapped(cert, intermediateCert, validity)
 		fmt.Printf("%s it with the chain file %s; the private key stays wherever you generated it.\n", useVerb, chainPath)
 		return nil
 	},
@@ -155,6 +161,7 @@ func init() {
 	signCmd.Flags().StringVar(&signType, "type", "server", "Certificate type: server or client")
 	signCmd.Flags().StringVar(&signName, "name", "", "Name for the certificate file (default: first label of the request's common name)")
 	signCmd.Flags().StringVar(&signOut, "out", "", "Write the certificate here instead of the intermediate's server-tls/ or client-tls/")
+	signCmd.Flags().StringVar(&validityFlag, "validity", "", validityFlagUsage("certificate", pki.LeafValidityDays))
 	signCmd.Flags().BoolVarP(&forceGenerate, "force", "f", false, "Replace an existing certificate at the output path")
 	signCmd.MarkFlagRequired("domain")
 	signCmd.MarkFlagRequired("intermediate")

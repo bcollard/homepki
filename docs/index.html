@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <title>homepki – three-tier PKI for local development</title>
-<meta name="description" content="A command line tool that creates a root CA, intermediate CAs, and server or client TLS certificates on your workstation. Verifies chains of trust, supports name constraints, signs external requests, and installs the root into the macOS trust store. A single Go binary with no OpenSSL dependency.">
+<meta name="description" content="A command line tool that creates a root CA, intermediate CAs, and server or client TLS certificates on your workstation. Verifies chains of trust, supports name constraints, signs external requests, revokes with CRLs, and installs the root into the macOS or Linux, Firefox and Java trust stores. A single Go binary with no OpenSSL dependency.">
 <link rel="canonical" href="https://bcollard.github.io/homepki/">
 <link rel="icon" href="mark.svg" type="image/svg+xml">
 
 <meta property="og:type" content="website">
 <meta property="og:title" content="homepki – three-tier PKI for local development">
-<meta property="og:description" content="Root CA, intermediate CAs, and server or client leaves, one command per tier. Chains are verified in-process, RSA or ECDSA, with JSON output for scripts. No OpenSSL needed.">
+<meta property="og:description" content="Root CA, intermediate CAs, and server or client leaves, one command per tier. Chains are verified in-process, RSA, ECDSA or Ed25519, with JSON output for scripts. No OpenSSL needed.">
 <meta property="og:url" content="https://bcollard.github.io/homepki/">
 <meta name="twitter:card" content="summary">
 
@@ -34,8 +34,11 @@
     "Chain of trust verification including extended key usage",
     "JSON output for scripting",
     "Subject Alternative Names with automatic IP and DNS classification",
-    "RSA or ECDSA keys per tier",
-    "Installs the root CA into the macOS system trust store",
+    "RSA, ECDSA or Ed25519 keys per tier",
+    "Configurable validity per certificate, down to minutes",
+    "PKCS#12 bundles for Java and Windows",
+    "Certificate revocation with CRLs",
+    "Installs the root CA into the macOS and Linux system trust stores, Firefox/NSS and Java",
     "Signs certificate requests generated elsewhere",
     "Refuses to overwrite existing certificates unless forced",
     "Includes an Agent Skill for AI coding tools"
@@ -56,7 +59,7 @@
       "name": "Can I use homepki for production certificates?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "No. Private keys are written unencrypted, validity periods are fixed, and there is no revocation. homepki is for local development, demos and tests. Use ACME/Let's Encrypt or your organisation's PKI for anything public-facing."
+        "text": "No. Private keys are written unencrypted, there is no online CA, no ACME and no OCSP, and revocation is published only as CRL files. homepki is for local development, demos and tests. Use ACME/Let's Encrypt or your organisation's PKI for anything public-facing."
       }
     },
     {
@@ -72,7 +75,7 @@
       "name": "How is homepki different from mkcert?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "mkcert installs its own root into the trust stores of every OS it supports, plus Firefox and Java. homepki installs into the macOS system keychain only, with homepki trust install. The difference is the hierarchy: homepki creates intermediates and separate client certificates, for mTLS or for giving a service a CA bundle, and it can sign a CSR generated elsewhere."
+        "text": "Both install their root into the system trust store, Firefox/NSS and Java; homepki does it on macOS and Linux, mkcert on Windows too. The difference is the hierarchy: homepki creates intermediates and separate client certificates, for mTLS or for giving a service a CA bundle, enforces name constraints when it issues, revokes certificates with CRLs, and signs CSRs generated elsewhere. mkcert issues leaves straight from its root."
       }
     },
     {
@@ -223,6 +226,12 @@
     background: var(--accent);
   }
 
+  table.stores { border-collapse: collapse; width: 100%; max-width: 46rem; margin: 1.5rem 0; font-size: .93rem }
+  table.stores th, table.stores td { text-align: left; vertical-align: top; padding: .55rem .75rem; border-bottom: 1px solid var(--line) }
+  table.stores th { color: var(--muted); font-weight: 600; font-size: .8rem }
+  table.stores td:first-child { white-space: nowrap }
+  table.stores td + td { overflow-wrap: anywhere }
+
   dl.faq { max-width: 46rem }
   dl.faq dt { font-weight: 600; margin-top: 1.5rem }
   dl.faq dd { margin: .35rem 0 0; color: var(--muted) }
@@ -305,7 +314,7 @@
 <section class="alt">
   <div class="wrap">
     <h2>Chain verification</h2>
-    <p class="lede">Every tier has a <code>list</code> subcommand that reports expiry, days remaining, and whether the certificate chains to its issuer. Verification runs in-process with Go's <code>crypto/x509</code>, so there is no tool output to parse.</p>
+    <p class="lede">Every tier has a <code>list</code> subcommand that reports expiry, days remaining, whether the certificate chains to its issuer, and for leaves whether it is revoked. Verification runs in-process with Go's <code>crypto/x509</code>, so there is no tool output to parse.</p>
 
 <pre class="wide"><code>$ homepki server-cert list -d runlocal.dev -i bu1
 Server Certificates for runlocal.dev/bu1:
@@ -335,7 +344,8 @@ Server Certificates for runlocal.dev/bu1:
 
 $ROOT/bu1/bu1-intermediate-ca-chain.crt   <span class="c"># intermediate + root, the CA bundle</span>
 $ROOT/bu1/server-tls/kong-gateway.crt     <span class="c"># serverAuth leaf + .key</span>
-$ROOT/bu1/client-tls/my-client.crt        <span class="c"># clientAuth leaf + .key</span></code></pre>
+$ROOT/bu1/client-tls/my-client.crt        <span class="c"># clientAuth leaf + .key</span>
+$ROOT/bu1/server-tls/kong-gateway.p12     <span class="c"># with --pkcs12: key + leaf + chain</span></code></pre>
 
     <p>Keys are written unencrypted, so no command prompts for a passphrase and the files load directly into a server config or a Kubernetes secret:</p>
 
@@ -363,9 +373,14 @@ kubectl create secret generic kong-ca \
   --san 'DNS:*.kong.local' \
   --san IP:::1</code></pre>
 
-<pre><code>X509v3 Subject Alternative Name: critical
-    DNS:kong-gateway.bu1.runlocal.dev, DNS:kong.local,
-    IP Address:192.168.1.10, DNS:*.kong.local, IP Address:0:0:0:0:0:0:0:1</code></pre>
+<pre><code>X509v3 Subject Alternative Name:
+    DNS:kong-gateway.bu1.runlocal.dev, DNS:kong.local, DNS:*.kong.local,
+    IP Address:192.168.1.10, IP Address:0:0:0:0:0:0:0:1</code></pre>
+
+    <p><code>client-cert</code> takes <code>--san</code> too, for example a SPIFFE ID as a <code>URI</code> SAN:</p>
+
+<pre><code>homepki client-cert -d runlocal.dev -i bu1 -c my-client \
+  --san URI:spiffe://runlocal.dev/ns/default/sa/my-client</code></pre>
 
     <p>Anything that parses as an address becomes an <code>IP</code> entry, everything else <code>DNS</code>. The <code>DNS:</code>, <code>IP:</code>, <code>email:</code> and <code>URI:</code> prefixes override that. An invalid address after <code>IP:</code> is rejected instead of being treated as a hostname.</p>
 
@@ -377,14 +392,27 @@ kubectl create secret generic kong-ca \
 
 <section>
   <div class="wrap">
-    <h2>RSA or ECDSA</h2>
-    <p class="lede">Every generate command takes <code>--key-type</code>. RSA-2048 is the default; ECDSA is available on P-256, P-384 and P-521.</p>
+    <h2>Key types and validity</h2>
+    <p class="lede">Every generate command takes <code>--key-type</code>. RSA-2048 is the default; ECDSA is available on P-256, P-384 and P-521, and Ed25519 as <code>ed25519</code>.</p>
 
 <pre><code>homepki root-ca         -d runlocal.dev --key-type ecdsa
 homepki intermediate-ca -d runlocal.dev -n bu1 --key-type ecdsa
 homepki server-cert     -d runlocal.dev -i bu1 -s kong-gateway --key-type ecdsa-p384</code></pre>
 
-    <p>Tiers are independent, so an ECDSA leaf under an RSA intermediate is fine. The signature digest follows the issuing CA's key: SHA-256 for RSA and P-256, SHA-384 for P-384, SHA-512 for P-521. An unrecognised value is rejected before anything is written to disk.</p>
+    <p>Tiers are independent, so an ECDSA leaf under an RSA intermediate is fine. The signature digest follows the issuing CA's key: SHA-256 for RSA and P-256, SHA-384 for P-384, SHA-512 for P-521. An Ed25519 CA signs with Ed25519, which has no separate digest. An unrecognised value is rejected before anything is written to disk.</p>
+
+    <div class="callout">
+      <p>Browsers do not accept Ed25519 certificates. Use Ed25519 for service-to-service TLS between Go or OpenSSL 1.1.1+ peers, and RSA or ECDSA for anything a browser opens.</p>
+    </div>
+
+    <h3>Validity</h3>
+    <p>Every command that signs takes <code>--validity</code>, as days (<code>90d</code>) or a Go duration (<code>24h</code>, <code>30m</code>). The defaults are 2190 days for CAs and 365 days for leaves.</p>
+
+<pre><code>homepki root-ca     -d runlocal.dev --validity 3650d
+homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway --validity 24h
+homepki sign        -d runlocal.dev -i bu1 --csr my-service.csr --validity 90d</code></pre>
+
+    <p>A certificate never outlives its issuer. A longer value is capped at the issuer's expiry, and the command prints a note when that happens. Short-lived leaves let you test certificate rotation without waiting a year.</p>
   </div>
 </section>
 
@@ -414,22 +442,34 @@ breaks. Pass --force to replace it, or issue under another name</code></pre>
 
 <section>
   <div class="wrap">
-    <h2>Trust it system-wide on macOS</h2>
-    <p class="lede">Add the root CA to the macOS system keychain and Safari, Chrome, curl and anything else reading the system trust store stop warning about certificates issued under it.</p>
+    <h2>Trust the root CA</h2>
+    <p class="lede">Add the root CA to the system trust store, Firefox and Java, and browsers, curl and JVMs stop warning about certificates issued under it.</p>
 
-<pre><code>homepki trust install   -d runlocal.dev   <span class="c"># System keychain, asks for sudo</span>
-homepki trust status                      <span class="c"># every root CA in the workdir</span>
-homepki trust uninstall -d runlocal.dev   <span class="c"># drop the trust setting</span></code></pre>
+<pre><code>homepki trust install   -d runlocal.dev                  <span class="c"># every store available, asks for sudo</span>
+homepki trust install   -d runlocal.dev --store nss,java <span class="c"># only Firefox and Java, no sudo</span>
+homepki trust status                                     <span class="c"># every root CA in the workdir</span>
+homepki trust uninstall -d runlocal.dev</code></pre>
 
-<pre class="wide"><code>$ homepki trust status
-Root CA trust (macOS system keychain):
-  runlocal-dev             <span class="ok">✓ trusted</span>
-  scratch-local            <span class="no">✗ not trusted</span> (Cert Verify Result: CSSMERR_TP_NOT_TRUSTED)</code></pre>
+    <table class="stores">
+      <thead><tr><th><code>--store</code></th><th>Where the root goes</th></tr></thead>
+      <tbody>
+        <tr><td><code>system</code></td><td>macOS: the System keychain. Linux: the anchor directory of Debian, Ubuntu and Alpine, Fedora and RHEL, Arch, or openSUSE, then the bundle is rebuilt with <code>update-ca-certificates</code>, <code>update-ca-trust</code> or <code>trust extract-compat</code>.</td></tr>
+        <tr><td><code>nss</code></td><td>Every Firefox profile, and on Linux the Chrome/Chromium NSS database, through <code>certutil</code> (<code>brew install nss</code>, <code>apt install libnss3-tools</code>).</td></tr>
+        <tr><td><code>java</code></td><td>The <code>cacerts</code> keystore of the JDK at <code>$JAVA_HOME</code>, through <code>keytool</code>.</td></tr>
+      </tbody>
+    </table>
 
-    <p><code>status</code> needs no privileges and takes <code>-o json</code>, so a script can check <code>.trusted</code> before asking for a password. <code>install</code> and <code>uninstall</code> run <code>security</code> under <code>sudo</code>.</p>
+<pre class="wide"><code>$ homepki trust status -d runlocal.dev
+Root CA trust:
+  runlocal-dev             <span class="no">✗ partly trusted</span>
+      <span class="ok">✓ system</span> /Library/Keychains/System.keychain
+      <span class="ok">✓ nss   </span> ~/Library/Application Support/Firefox/Profiles/x1y2.default-release
+      <span class="no">✗ java  </span> /opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home/lib/security/cacerts (alias homepki-runlocal-dev not in the keystore)</code></pre>
+
+    <p>Without <code>--store</code>, homepki uses every store it finds: the system store, NSS when a profile and <code>certutil</code> both exist, and Java when <code>JAVA_HOME</code> is set. A store named with <code>--store</code> must be available, or the command fails. <code>status</code> needs no privileges and takes <code>-o json</code>, so a script can check <code>.trusted</code> before asking for a password. The system store, and a <code>cacerts</code> file you cannot write, are changed under <code>sudo</code>.</p>
 
     <div class="callout">
-      <p>macOS only, and the system keychain only — Firefox and Java keep their own trust stores. Trusting the root is also not enough on its own: the server must present <code>&lt;name&gt;-intermediate-ca-chain.crt</code>, or a client cannot build the path from the leaf to the trusted root.</p>
+      <p>Trusting the root is not enough on its own: the server must present <code>&lt;name&gt;-intermediate-ca-chain.crt</code>, or a client cannot build the path from the leaf to the trusted root. Restart Firefox and Java processes after installing.</p>
     </div>
   </div>
 </section>
@@ -483,6 +523,43 @@ homepki sign -d runlocal.dev -i bu1 --csr my-service.csr --out ./my-service.crt<
 
 <section class="alt">
   <div class="wrap">
+    <h2>Revoke a certificate</h2>
+    <p class="lede"><code>revoke</code> adds a leaf's serial number to its intermediate's certificate revocation list and re-signs it. Servers that read the CRL then refuse the certificate.</p>
+
+<pre><code>homepki crl    -d runlocal.dev -i bu1                  <span class="c"># write empty CRLs before anything is revoked</span>
+homepki revoke -d runlocal.dev -i bu1 -c my-client --reason keyCompromise
+homepki revoke -d runlocal.dev -i bu1 --cert ./my-service.crt</code></pre>
+
+<pre><code>$ROOT/bu1/bu1-intermediate-ca.crl   <span class="c"># the intermediate's CRL</span>
+$ROOT/ca/runlocal-dev-root-ca.crl   <span class="c"># the root's CRL</span>
+$ROOT/bu1/bu1-crl-chain.crl         <span class="c"># both, for servers that check every tier</span></code></pre>
+
+    <p>nginx and OpenSSL with <code>-crl_check_all</code> need a CRL for every CA in the chain, so give them the chain file. <code>list</code> reports revoked leaves:</p>
+
+<pre class="wide"><code>  my-client.crt  2027-09-26  364        <span class="no">✗ INVALID: revoked on 2026-09-26 (keyCompromise)</span></code></pre>
+
+    <div class="callout">
+      <p>The CRL file is the only record of revocations. Each CRL is valid for 365 days by default; OpenSSL-based servers reject a CRL past its next update, so run <code>homepki crl</code> again before then, or pass <code>--validity</code>. Re-issuing a revoked name with <code>--force</code> gives it a new serial that is not revoked.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>PKCS#12 for Java and Windows</h2>
+    <p class="lede"><code>--pkcs12</code> on <code>server-cert</code> or <code>client-cert</code> also writes <code>&lt;name&gt;.p12</code>, holding the key, the leaf and the CA chain.</p>
+
+<pre><code>homepki server-cert -d runlocal.dev -i bu1 -s kong-gateway --pkcs12
+homepki client-cert -d runlocal.dev -i bu1 -c my-client --pkcs12 --pkcs12-password s3cret
+
+keytool -list -keystore $ROOT/bu1/server-tls/kong-gateway.p12 -storepass changeit</code></pre>
+
+    <p>The default password is <code>changeit</code>, the same as the JDK's keystores. The file uses the 3DES encoding, which Java, OpenSSL 3, macOS Keychain and Windows all import without extra options. Re-issuing a leaf without <code>--pkcs12</code> deletes the old bundle, since it holds the old key.</p>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
     <h2>Agent Skill for AI coding tools</h2>
     <p class="lede">homepki includes an <a href="https://code.claude.com/docs/en/skills">Agent Skill</a> compiled into the binary. Install it once so AI coding tools have the flags, the usage patterns, and the failure modes described below.</p>
 
@@ -500,7 +577,7 @@ homepki skill install --print  <span class="c"># emit it to stdout, pipe it anyw
 
     <dl class="faq">
       <dt>Can I use this for production certificates?</dt>
-      <dd>No. Keys are unencrypted, validity periods are fixed at 2190 days for CAs and 365 days for leaves, and there is no revocation or renewal. This is a local-development CA. Use ACME/Let's Encrypt or your organisation's PKI for anything public-facing.</dd>
+      <dd>No. Keys are unencrypted, there is no online CA, no ACME and no OCSP, and revocation is published only as CRL files. This is a local-development CA. Use ACME/Let's Encrypt or your organisation's PKI for anything public-facing.</dd>
 
       <dt>Is it safe to re-run a generate command?</dt>
       <dd>Yes. A generate command refuses to overwrite existing material: it exits non-zero, prints what is in the way, and changes nothing. <code>--force</code> replaces it deliberately. On a CA tier that is still destructive — every certificate below stops verifying, while the tier you replaced keeps showing <code>✓ OK</code>, so check the tier <em>below</em> it.</dd>
@@ -509,13 +586,16 @@ homepki skill install --print  <span class="c"># emit it to stdout, pipe it anyw
       <dd>Pass <code>--force</code>. It writes a new key and certificate over the old pair. The key is regenerated, so anything already serving the old pair has to be reloaded.</dd>
 
       <dt>How is this different from mkcert?</dt>
-      <dd>mkcert installs its root into the trust stores of every OS it supports, plus Firefox and Java. homepki installs into the macOS system keychain only. The difference is the hierarchy: homepki creates intermediates, separate client certificates for mTLS, and a CA bundle to hand to a service, and it signs requests generated elsewhere. mkcert issues leaves straight from its root.</dd>
+      <dd>Both install their root into the system trust store, Firefox/NSS and Java; homepki does it on macOS and Linux, mkcert on Windows too. The difference is the hierarchy: homepki creates intermediates, separate client certificates for mTLS, and a CA bundle to hand to a service. It also enforces name constraints when it issues, revokes certificates with CRLs, and signs requests generated elsewhere. mkcert issues leaves straight from its root.</dd>
+
+      <dt>How is this different from step?</dt>
+      <dd><code>step certificate create</code> can build the same tiers, but you choose the file layout and pass profiles and templates yourself. homepki fixes the layout per domain and intermediate, derives the subjects, and verifies every chain in <code>list</code>. step and step-ca also cover what homepki leaves out on purpose: an online CA with ACME, SSH certificates, and encrypted private keys.</dd>
 
       <dt>Where does it store files, and how do I start over?</dt>
       <dd>Everything lives under one directory: <code>--workdir</code>, then <code>$HOMEPKI_WORKDIR</code>, then <code>~/.homepki</code>. There is no delete command, so removing a PKI means <code>rm -rf</code> on that directory. Point <code>HOMEPKI_WORKDIR</code> at a temporary directory for a throwaway PKI.</dd>
 
       <dt>Does it need OpenSSL?</dt>
-      <dd>No. It is a single Go binary: key generation, signing and chain verification use Go's <code>crypto/x509</code>. No command waits for a passphrase or a DN prompt, except <code>trust install</code> and <code>uninstall</code>, which run under <code>sudo</code>.</dd>
+      <dd>No. It is a single Go binary: key generation, signing and chain verification use Go's <code>crypto/x509</code>. No command waits for a passphrase or a DN prompt. The only prompt is <code>sudo</code>, when <code>trust install</code> or <code>uninstall</code> changes the system store or a <code>cacerts</code> file you cannot write.</dd>
     </dl>
   </div>
 </section>

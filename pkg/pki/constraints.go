@@ -117,6 +117,76 @@ func parseIPConstraint(value string) (*net.IPNet, error) {
 	return &net.IPNet{IP: ip.Mask(ipMask), Mask: ipMask}, nil
 }
 
+// ParseIPRange parses an IP range for a name constraint: CIDR (10.0.0.0/8) or
+// an address/netmask pair (10.0.0.0/255.0.0.0). Host bits are cleared.
+func ParseIPRange(s string) (*net.IPNet, error) {
+	return parseIPConstraint(strings.TrimSpace(s))
+}
+
+// The Permit* and Exclude* methods build NameConstraints in code, without the
+// openssl syntax. Each returns a copy with the subtrees appended, so they chain:
+//
+//	nc := pki.NameConstraints{}.PermitDNS(".klimax.internal").ExcludeIP(lan)
+//
+// DNS subtrees follow crypto/x509: ".example.internal" matches subdomains only,
+// "example.internal" the domain and its subdomains.
+
+// PermitDNS adds permitted DNS subtrees.
+func (nc NameConstraints) PermitDNS(domains ...string) NameConstraints {
+	nc.PermittedDNS = appendCopy(nc.PermittedDNS, domains)
+	return nc
+}
+
+// ExcludeDNS adds excluded DNS subtrees.
+func (nc NameConstraints) ExcludeDNS(domains ...string) NameConstraints {
+	nc.ExcludedDNS = appendCopy(nc.ExcludedDNS, domains)
+	return nc
+}
+
+// PermitIP adds permitted IP ranges; see ParseIPRange to build them from text.
+func (nc NameConstraints) PermitIP(ranges ...*net.IPNet) NameConstraints {
+	nc.PermittedIPs = appendCopy(nc.PermittedIPs, ranges)
+	return nc
+}
+
+// ExcludeIP adds excluded IP ranges.
+func (nc NameConstraints) ExcludeIP(ranges ...*net.IPNet) NameConstraints {
+	nc.ExcludedIPs = appendCopy(nc.ExcludedIPs, ranges)
+	return nc
+}
+
+// PermitEmail adds permitted email subtrees: a mailbox, a host, or a
+// .domain for every host under it.
+func (nc NameConstraints) PermitEmail(values ...string) NameConstraints {
+	nc.PermittedEmails = appendCopy(nc.PermittedEmails, values)
+	return nc
+}
+
+// ExcludeEmail adds excluded email subtrees.
+func (nc NameConstraints) ExcludeEmail(values ...string) NameConstraints {
+	nc.ExcludedEmails = appendCopy(nc.ExcludedEmails, values)
+	return nc
+}
+
+// PermitURI adds permitted URI host subtrees.
+func (nc NameConstraints) PermitURI(domains ...string) NameConstraints {
+	nc.PermittedURIs = appendCopy(nc.PermittedURIs, domains)
+	return nc
+}
+
+// ExcludeURI adds excluded URI host subtrees.
+func (nc NameConstraints) ExcludeURI(domains ...string) NameConstraints {
+	nc.ExcludedURIs = appendCopy(nc.ExcludedURIs, domains)
+	return nc
+}
+
+// appendCopy appends to a fresh slice, so a NameConstraints value never
+// shares a backing array with the one it was built from.
+func appendCopy[T any](dst, src []T) []T {
+	out := make([]T, 0, len(dst)+len(src))
+	return append(append(out, dst...), src...)
+}
+
 // Empty reports whether no constraint was given.
 func (nc NameConstraints) Empty() bool {
 	return len(nc.PermittedDNS)+len(nc.ExcludedDNS)+len(nc.PermittedIPs)+len(nc.ExcludedIPs)+
