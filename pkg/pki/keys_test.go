@@ -1,9 +1,12 @@
 package pki
 
 import (
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"testing"
@@ -79,5 +82,83 @@ func TestWriteAndLoadKey(t *testing.T) {
 		if !publicKeysEqual(key.Public(), loaded.Public()) {
 			t.Errorf("%s: loaded key does not match the written one", kt)
 		}
+	}
+}
+
+func TestLoadKeyLegacyFormats(t *testing.T) {
+	dir := t.TempDir()
+
+	rsaKey, err := GenerateKey("rsa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ecKey, err := GenerateKey("ecdsa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ecDER, err := x509.MarshalECPrivateKey(ecKey.(*ecdsa.PrivateKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, c := range map[string]struct {
+		block *pem.Block
+		key   crypto.Signer
+	}{
+		"pkcs1": {&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(rsaKey.(*rsa.PrivateKey))}, rsaKey},
+		"sec1":  {&pem.Block{Type: "EC PRIVATE KEY", Bytes: ecDER}, ecKey},
+	} {
+		path := filepath.Join(dir, name+".key")
+		// openssl writes "EC PARAMETERS" before a SEC 1 key; LoadKey must skip it.
+		data := append(pem.EncodeToMemory(&pem.Block{Type: "EC PARAMETERS", Bytes: []byte{0x06, 0x00}}), pem.EncodeToMemory(c.block)...)
+		if err := os.WriteFile(path, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		loaded, err := LoadKey(path)
+		if err != nil {
+			t.Fatalf("LoadKey(%s): %v", name, err)
+		}
+		if !publicKeysEqual(c.key.Public(), loaded.Public()) {
+			t.Errorf("%s: loaded key does not match", name)
+		}
+	}
+}
+
+func TestLoadKeyErrors(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name string, data []byte) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	cases := map[string]string{
+		"missing":   filepath.Join(dir, "missing.key"),
+		"not PEM":   write("garbage.key", []byte("not a key")),
+		"cert only": write("cert.key", pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte{1}})),
+		"bad PKCS8": write("bad8.key", pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte{1, 2, 3}})),
+	}
+	for name, path := range cases {
+		if _, err := LoadKey(path); err == nil {
+			t.Errorf("LoadKey(%s): expected an error", name)
+		}
+	}
+}
+
+func TestWriteKeyTightensMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "k.key")
+	if err := os.WriteFile(path, []byte("old"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	key, err := GenerateKey("ecdsa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteKey(path, key); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := os.Stat(path); info.Mode().Perm() != 0600 {
+		t.Errorf("mode %o after overwriting a 0644 file, want 0600", info.Mode().Perm())
 	}
 }

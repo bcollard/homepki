@@ -4,6 +4,8 @@ import (
 	"crypto"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/pem"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -168,5 +170,149 @@ func TestWriteAndLoadCerts(t *testing.T) {
 	}
 	if err := CheckKeyPair(c.root, c.intermediateKey); err == nil {
 		t.Error("mismatched pair accepted")
+	}
+}
+
+func TestECDSAServerLeafHasNoKeyEncipherment(t *testing.T) {
+	c := newTestChain(t, "ecdsa", NameConstraints{}, NameConstraints{})
+	leaf := c.leaf(t, "ecdsa-p384", ServerLeaf, "gw.bu1.test.local")
+	if leaf.KeyUsage != x509.KeyUsageDigitalSignature {
+		t.Errorf("ECDSA server leaf ku=%v, want digitalSignature only", leaf.KeyUsage)
+	}
+	if len(leaf.ExtKeyUsage) != 1 || leaf.ExtKeyUsage[0] != x509.ExtKeyUsageServerAuth {
+		t.Errorf("ECDSA server leaf eku=%v", leaf.ExtKeyUsage)
+	}
+}
+
+func TestLeafKindExtKeyUsage(t *testing.T) {
+	if ServerLeaf.ExtKeyUsage() != x509.ExtKeyUsageServerAuth || ClientLeaf.ExtKeyUsage() != x509.ExtKeyUsageClientAuth {
+		t.Error("LeafKind.ExtKeyUsage mapping is wrong")
+	}
+}
+
+func TestSigningWithMismatchedIssuerKeyFails(t *testing.T) {
+	c := newTestChain(t, "ecdsa", NameConstraints{}, NameConstraints{})
+	key, err := GenerateKey("ecdsa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The intermediate's certificate with the root's key: crypto/x509 refuses.
+	if _, err := SignLeaf(key.Public(), pkix.Name{CommonName: "x"}, SANs{DNS: []string{"x"}}, ServerLeaf, c.intermediate, c.rootKey); err == nil {
+		t.Error("SignLeaf with a key that does not match the issuer: expected an error")
+	}
+	if _, err := SignIntermediate(key.Public(), pkix.Name{CommonName: "x"}, NameConstraints{}, c.root, c.intermediateKey); err == nil {
+		t.Error("SignIntermediate with a key that does not match the issuer: expected an error")
+	}
+}
+
+func TestExcludedAndOtherConstraintTypes(t *testing.T) {
+	nc, err := ParseNameConstraints([]string{
+		"excluded;DNS:secret.test.local",
+		"permitted;email:test.local",
+		"permitted;URI:.test.local",
+		"excluded;IP:10.0.0.0/8",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := newTestChain(t, "ecdsa", nc, NameConstraints{})
+	usages := []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
+
+	cases := []struct {
+		sans []string
+		ok   bool
+	}{
+		{[]string{"gw.bu1.test.local"}, true},
+		{[]string{"gw.bu1.test.local", "db.secret.test.local"}, false},
+		{[]string{"gw.bu1.test.local", "email:ops@test.local"}, true},
+		{[]string{"gw.bu1.test.local", "email:ops@example.com"}, false},
+		{[]string{"gw.bu1.test.local", "URI:spiffe://gw.test.local/svc"}, true},
+		{[]string{"gw.bu1.test.local", "URI:spiffe://example.com/svc"}, false},
+		{[]string{"gw.bu1.test.local", "192.168.1.1"}, true},
+		{[]string{"gw.bu1.test.local", "10.1.2.3"}, false},
+	}
+	for _, tc := range cases {
+		err := VerifyChain(c.leaf(t, "ecdsa", ServerLeaf, tc.sans...), c.intermediate, c.root, usages)
+		if tc.ok && err != nil {
+			t.Errorf("%q: unexpected error %v", tc.sans, err)
+		}
+		if !tc.ok && !IsNameConstraintViolation(err) {
+			t.Errorf("%q: want a name constraint violation, got %v", tc.sans, err)
+		}
+	}
+}
+
+func TestLoadCertLegacyAndErrors(t *testing.T) {
+	c := newTestChain(t, "ecdsa", NameConstraints{}, NameConstraints{})
+	dir := t.TempDir()
+
+	// Releases before 0.7.0 let openssl ca write a text dump before the PEM block.
+	legacy := filepath.Join(dir, "legacy.crt")
+	text := "Certificate:\n    Data:\n        Version: 3 (0x2)\n"
+	if err := os.WriteFile(legacy, append([]byte(text), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c.root.Raw})...), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadCert(legacy)
+	if err != nil || !got.Equal(c.root) {
+		t.Errorf("LoadCert(legacy) = %v, %v", got, err)
+	}
+
+	// A key block before the certificate is skipped.
+	mixed := filepath.Join(dir, "mixed.pem")
+	data := append(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte{1}}), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c.intermediate.Raw})...)
+	if err := os.WriteFile(mixed, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := LoadCert(mixed); err != nil || !got.Equal(c.intermediate) {
+		t.Errorf("LoadCert(mixed) = %v, %v", got, err)
+	}
+
+	bad := filepath.Join(dir, "bad.crt")
+	if err := os.WriteFile(bad, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte{1, 2}}), 0644); err != nil {
+		t.Fatal(err)
+	}
+	empty := filepath.Join(dir, "empty.crt")
+	if err := os.WriteFile(empty, []byte("no pem here"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{bad, empty, filepath.Join(dir, "missing.crt")} {
+		if _, err := LoadCert(p); err == nil {
+			t.Errorf("LoadCert(%s): expected an error", filepath.Base(p))
+		}
+	}
+}
+
+func TestSubjectKeyID(t *testing.T) {
+	key, err := GenerateKey("rsa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := subjectKeyID(key.Public())
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := subjectKeyID(key.Public())
+	if len(a) != 20 || string(a) != string(b) {
+		t.Errorf("subjectKeyID not a stable 20-byte SHA-1: %x %x", a, b)
+	}
+	if _, err := subjectKeyID("not a key"); err == nil {
+		t.Error("subjectKeyID accepted an unsupported key type")
+	}
+}
+
+func TestNewSerialIsPositiveAndBounded(t *testing.T) {
+	seen := map[string]bool{}
+	for i := 0; i < 100; i++ {
+		n, err := newSerial()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n.Sign() <= 0 || n.BitLen() > 128 {
+			t.Fatalf("serial %v out of range", n)
+		}
+		if seen[n.String()] {
+			t.Fatalf("serial %v repeated", n)
+		}
+		seen[n.String()] = true
 	}
 }
