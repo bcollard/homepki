@@ -50,7 +50,7 @@ docs/
 ├── styles.css          # every style, light/dark/auto via :root[data-theme]
 ├── site.js             # theme toggle, release badge, sidebar, heading anchors, search, copy buttons
 ├── mark.svg · robots.txt · sitemap.xml (generated)
-└── docs/               # documentation section, layout modelled on klimax.dev/docs
+└── docs/               # documentation section, layout modelled on marina.run/docs
     ├── index.html      # overview, card grid
     ├── *.html          # one page per topic
     └── search-index.js # generated
