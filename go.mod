@@ -1,6 +1,6 @@
 module github.com/bcollard/homepki
 
-go 1.22.8
+go 1.26.0
 
 require (
 	github.com/spf13/cobra v1.10.1
@@ -10,5 +10,5 @@ require (
 
 require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	golang.org/x/crypto v0.11.0 // indirect
+	golang.org/x/crypto v0.56.0 // indirect
 )
